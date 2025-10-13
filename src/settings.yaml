@@ -1,0 +1,12 @@
+analyte: Null
+samples_dir : Null
+feature_extractor: Null
+sweep_id: Null
+mlp_model: Null
+
+model:
+  max_epochs: 0
+  learning_rate: 0
+  learning_rate_patience: 0
+  loss_function: 0
+  gradient_clipping: 0
