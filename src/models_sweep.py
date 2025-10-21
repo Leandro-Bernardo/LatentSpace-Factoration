@@ -10,11 +10,13 @@ from typing import Dict, List
 from wandb.wandb_run import Run
 from pytorch_lightning import Trainer
 from engine.classifier import vanilla
-from engine.lightning import Dataset, BaseModel
-from engine.feature_extractor import squeezenet1_1
+from engine.data_manager import Dataset, BaseModel
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+
+from engine.mlp_feature_extractor import SNModel
+from engine.vanilla_feature_extractor import SNModel
 
 os.environ["WANDB_CONSOLE"] = "off"  # Needed to avoid "ValueError: signal only works in main thread of the main interpreter".
 
