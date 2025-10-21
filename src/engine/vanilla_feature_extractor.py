@@ -15,7 +15,7 @@ from engine.classifier import sequeeze_classif
 
 wandb_logger = WandbLogger(log_model="all")
 
-class SNModel(LightningModule):
+class Vanilla_feature_extractor(LightningModule):
   def __init__(self, input_size, num_classes):
     super().__init__()
     self.backbone = models.squeezenet1_1(weights="DEFAULT")

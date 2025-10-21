@@ -2,8 +2,8 @@ import torch
 from . import vanilla_feature_extractor
 from . import mlp_feature_extractor
 
-mlp_squeeze = mlp_feature_extractor.feature_extractor.SNModel()
-vanilla_squeeze = vanilla_feature_extractor.feature_extractor.SNModel()
+mlp_squeeze = mlp_feature_extractor.Vanilla_feature_extractor()
+vanilla_squeeze = vanilla_feature_extractor.Mlp_feature_extractor()
 
 # Classificador pro script do David
 class Fluttershy(torch.nn.Module):
