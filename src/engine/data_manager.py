@@ -1,7 +1,7 @@
 import torch
 
 from torch.optim import SGD
-from lightning import LightningDataModule, LightningModule
+from engine.data_manager import LightningDataModule, LightningModule
 from torch.utils.data import random_split, DataLoader, TensorDataset
 from torch import Generator, tensor, from_numpy
 import chemical_analysis as ca
