@@ -46,7 +46,7 @@ class Fluttershy(torch.nn.Module):
         return x
 
 
-class squeeze_classif(torch.nn.Module):
+class VanillaClassifier(torch.nn.Module):
     """_Classificador original da arquitetura SqueezeNet_
     
     """
