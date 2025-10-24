@@ -3,10 +3,12 @@ import yaml
 import vanilla_feature_extractor
 import mlp_feature_extractor
 
-mlp_squeeze = mlp_feature_extractor.Vanilla_feature_extractor()
-vanilla_squeeze = vanilla_feature_extractor.Mlp_feature_extractor()
- 
 data = yaml.safe_load('devices_mapper.yaml')
+num_class =  ((data['alkalinity'])[-1] + 1)
+input_size = 756 
+
+vanilla_squeeze = vanilla_feature_extractor.Vanilla_feature_extractor(input_size, num_class)
+
 
 # Classificador pro script do David
 class Fluttershy(torch.nn.Module):
@@ -35,7 +37,6 @@ class Fluttershy(torch.nn.Module):
                                     torch.nn.Linear(in_features=16, out_features=10, bias=True),
                                     torch.nn.ReLU(),)
 
-
     def forward(self, x: torch.Tensor):
         x = self.input_layer(x)
         x = self.l5(x)
@@ -47,7 +48,6 @@ class Fluttershy(torch.nn.Module):
         x = torch.nn.functional.softmax(x, dim=1)
 
         return x
-
 
 class VanillaClassifier(torch.nn.Module):
     """_Classificador original da arquitetura SqueezeNet_
@@ -63,6 +63,7 @@ class VanillaClassifier(torch.nn.Module):
         )
 
     def forward(self, x: torch.Tensor):
-        x = self.conv10(x)
-        x = self.output_layer(x)
+        x = self.final_conv(x)
+        x = torch.softmax(x)
         return x
+    
