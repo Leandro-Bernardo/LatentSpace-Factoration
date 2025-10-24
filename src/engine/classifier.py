@@ -1,9 +1,12 @@
 import torch
-from . import vanilla_feature_extractor
-from . import mlp_feature_extractor
+import yaml
+import vanilla_feature_extractor
+import mlp_feature_extractor
 
 mlp_squeeze = mlp_feature_extractor.Vanilla_feature_extractor()
 vanilla_squeeze = vanilla_feature_extractor.Mlp_feature_extractor()
+ 
+data = yaml.safe_load('devices_mapper.yaml')
 
 # Classificador pro script do David
 class Fluttershy(torch.nn.Module):
@@ -48,10 +51,11 @@ class Fluttershy(torch.nn.Module):
 
 class squeeze_classif(torch.nn.Module):
     """_Classificador original da arquitetura SqueezeNet_
-    
+        Utilizando o classificador com a mesma arquitetura da Squeeze Net original, uma camada de convolução + avg pooling
     """
     def __init__(self, device: str = "cuda", **kwargs):
         super().__init__()
+        self.num_class =  (data['alkalinity'])[-1] + 1
         
         final_conv = torch.nn.Conv2d(512, self.num_classes, kernel_size=1) # Alterar o tamanho da entrada (baseado no pmf.shape)
         self.layer_classfier = torch.nn.Sequential(
@@ -61,5 +65,4 @@ class squeeze_classif(torch.nn.Module):
     def forward(self, x: torch.Tensor):
         x = self.conv10(x)
         x = self.output_layer(x)
-
         return x
