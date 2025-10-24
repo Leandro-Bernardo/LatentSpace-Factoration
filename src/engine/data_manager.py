@@ -1,13 +1,11 @@
 import torch
-
+import chemical_analysis as ca
 from torch.optim import SGD
 from engine.data_manager import LightningDataModule, LightningModule
 from torch.utils.data import random_split, DataLoader, TensorDataset
 from torch import Generator, tensor, from_numpy
-import chemical_analysis as ca
 from typing import Any, Dict, List, Tuple
-
-
+from sklearn.preprocessing import OneHotEncoder
 
 class Dataset(LightningDataModule): #Trocar para DataModule?
 
@@ -15,13 +13,14 @@ class Dataset(LightningDataModule): #Trocar para DataModule?
         self.samples = samples
         self.processed_samples = processed_samples
         self.mapper = mapper
+        self.one_hot = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
 
     def prepare_data(self):
         for processed_sample in self.processed_samples:
             self.models.append(self.mapper.get(processed_sample.sample.get("device")["model"]))
             self.samples_pmf.append(processed_sample.calibrated_pmf)
-
         self.models = tensor(self.models)
+        self.one_hot.fit(self.models)
         self.samples_pmf = from_numpy(self.samples_pmf)
 
     def setup(self, stage:str):
