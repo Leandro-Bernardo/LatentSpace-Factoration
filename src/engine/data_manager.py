@@ -1,7 +1,9 @@
 import torch
+import yaml
 
+import numpy as np
 from torch.optim import SGD
-from lightning import LightningDataModule, LightningModule
+from engine.data_manager import LightningDataModule, LightningModule
 from torch.utils.data import random_split, DataLoader, TensorDataset
 from torch import Generator, tensor, from_numpy
 import chemical_analysis as ca
@@ -9,16 +11,27 @@ from typing import Any, Dict, List, Tuple
 
 
 
-class Dataset(LightningDataModule): #Trocar para DataModule?
+class Dataset(LightningDataModule):
 
     def init(self, samples, processed_samples, mapper: Dict, args, **kwags):
         self.samples = samples
         self.processed_samples = processed_samples
         self.mapper = mapper
+        
 
     def prepare_data(self):
+        with open("devices_mapper.yaml", "r") as f:
+            data = yaml.safe_load(f)
+        self.mapper = data["alkalinity"]
+        num_classes = len(self.mapper)
+        
         for processed_sample in self.processed_samples:
-            self.models.append(self.mapper.get(processed_sample.sample.get("device")["model"]))
+            # one hot
+            id = self.mapper.get(self.mapper.get(processed_sample.sample.get("device")["model"]))
+            one_hot = np.zeros(num_classes)
+            one_hot[id] = 1
+            self.models.append(one_hot)
+            
             self.samples_pmf.append(processed_sample.calibrated_pmf)
 
         self.models = tensor(self.models)
