@@ -49,7 +49,8 @@ class Fluttershy(torch.nn.Module):
 
         return x
 
-class VanillaClassifier(torch.nn.Module):
+
+class squeeze_classif(torch.nn.Module):
     """_Classificador original da arquitetura SqueezeNet_
         Utilizando o classificador com a mesma arquitetura da Squeeze Net original, uma camada de convolução + avg pooling
     """
@@ -63,7 +64,7 @@ class VanillaClassifier(torch.nn.Module):
         )
 
     def forward(self, x: torch.Tensor):
-        x = self.final_conv(x)
-        x = torch.softmax(x)
+        x = self.conv10(x)
+        x = self.output_layer(x)
+
         return x
-    
