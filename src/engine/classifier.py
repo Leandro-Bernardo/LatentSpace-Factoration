@@ -9,7 +9,6 @@ input_size = 756
 
 vanilla_squeeze = vanilla_feature_extractor.Vanilla_feature_extractor(input_size, num_class)
 
-
 # Classificador pro script do David
 class Fluttershy(torch.nn.Module):
     def __init__(self, device: str = "cuda", **kwargs):
@@ -64,7 +63,6 @@ class squeeze_classif(torch.nn.Module):
         )
 
     def forward(self, x: torch.Tensor):
-        x = self.conv10(x)
-        x = self.output_layer(x)
-
+        x = self.layer_classfier(x)
+        x = torch.nn.functional.softmax(x, dim=1)
         return x
