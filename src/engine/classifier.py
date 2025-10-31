@@ -9,7 +9,7 @@ with open(os.path.join("devices_mapper.yaml"), "r") as f: # Abrindo yaml dos dev
     data_devices = yaml.load(f, Loader=yaml.FullLoader)
 
 current_analyte = data_settings['analyte']
-num_class =  len(data_devices['{current_analyte}'])
+num_class =  len(data_devices[current_analyte])
 input_size = 756 
 
 # Classificador pro script do David
