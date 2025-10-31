@@ -10,18 +10,22 @@ with open(os.path.join("settings.yaml"), "r") as f: # Abrindo yaml das configura
 with open(os.path.join("devices_mapper.yaml"), "r") as f: # Abrindo yaml dos devices (mapper) 
     data_devices = yaml.load(f, Loader=yaml.FullLoader)
 
+current_analyte = data_settings['analyte']
+num_class =  len(data_devices['{current_analyte}'])
+
 class Dataset(LightningDataModule): #Trocar para DataModule?
     def init(self, samples, processed_samples, mapper: Dict, args, **kwags):
         self.samples = samples
         self.processed_samples = processed_samples
         self.current_analyte = data_settings['analyte']
         self.mapper = data_devices['{self.current_analyte}']
+        self.one_hot = torch.nn.functional.one_hot(torch.arange(0, num_class), num_classes=num_class)
 
     def prepare_data(self):
         for processed_sample in self.processed_samples:
-            self.models.append(self.mapper.get(processed_sample.sample.get("device")["model"]))
+            self.true_class_value.append(self.one_hot[self.mapper.get(processed_sample.sample.get("device")["model"])]) 
             self.samples_pmf.append(processed_sample.calibrated_pmf)
-        self.models = tensor(self.models)
+        self.true_class_value = tensor(self.true_class_value)
         self.samples_pmf = from_numpy(self.samples_pmf)
 
     def setup(self, stage:str):
