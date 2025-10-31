@@ -1,38 +1,30 @@
-import torch
-#import chemical_analysis as ca
+import torch, os, yaml
 from torch.optim import SGD
-#from engine.data_manager import LightningDataModule, LightningModule
 from pytorch_lightning import LightningDataModule, LightningModule
 from torch.utils.data import random_split, DataLoader, TensorDataset
 from torch import Generator, tensor, from_numpy
 from typing import Any, Dict, List, Tuple
 
-from sklearn.preprocessing import OneHotEncoder
-from sklearn.feature_extraction import DictVectorizer
+with open(os.path.join("settings.yaml"), "r") as f: # Abrindo yaml das configurações
+    data_settings = yaml.load(f, Loader=yaml.FullLoader)
+with open(os.path.join("devices_mapper.yaml"), "r") as f: # Abrindo yaml dos devices (mapper) 
+    data_devices = yaml.load(f, Loader=yaml.FullLoader)
 
 class Dataset(LightningDataModule): #Trocar para DataModule?
-
     def init(self, samples, processed_samples, mapper: Dict, args, **kwags):
         self.samples = samples
         self.processed_samples = processed_samples
-        self.mapper = mapper
-        
-        #self.one_hot = OneHotEncoder(sparse_output=False, handle_unknown='ignore')
-        self.vector = DictVectorizer(sparse=False)
+        self.current_analyte = data_settings['analyte']
+        self.mapper = data_devices['{self.current_analyte}']
 
     def prepare_data(self):
         for processed_sample in self.processed_samples:
             self.models.append(self.mapper.get(processed_sample.sample.get("device")["model"]))
             self.samples_pmf.append(processed_sample.calibrated_pmf)
         self.models = tensor(self.models)
-        
-        #self.one_hot.fit(self.models)
         self.samples_pmf = from_numpy(self.samples_pmf)
 
     def setup(self, stage:str):
-        #self.one_hot.fit(self.mapper)
-        self.vector.fit_transform(self.mapper)
-        
         len_dataset = len(self.processed_samples)
         n_train = int(0.6*len_dataset)
         n_val = int(0.2*len_dataset)
