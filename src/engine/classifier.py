@@ -3,9 +3,11 @@ import yaml, os
 from . import vanilla_feature_extractor
 from . import mlp_feature_extractor
 
-with open(os.path.join("settings.yaml"), "r") as f: # Abrindo yaml das configurações
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+with open(os.path.join(BASE_DIR, "..", "settings.yml"), "r") as f: # Abrindo yaml das configurações
     data_settings = yaml.load(f, Loader=yaml.FullLoader)
-with open(os.path.join("devices_mapper.yaml"), "r") as f: # Abrindo yaml dos devices (mapper)
+with open(os.path.join(BASE_DIR, "..", "devices_mapper.yml"), "r") as f: # Abrindo yaml dos devices (mapper) 
     data_devices = yaml.load(f, Loader=yaml.FullLoader)
 
 current_analyte = data_settings['analyte']

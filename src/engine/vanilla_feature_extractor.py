@@ -1,7 +1,7 @@
 import torch
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-from torchsummary import summary
+#from torchsummary import summary
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from torch.utils.data import random_split
@@ -11,7 +11,7 @@ from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 
-from .classifier import sequeeze_classif
+from .classifier import * 
 
 wandb_logger = WandbLogger(log_model="all")
 
@@ -27,5 +27,5 @@ class Vanilla_feature_extractor(LightningModule):
   def forward(self, x):
     x = self.last_layer(x)
     x = x.get('features.12.cat')
-    x = sequeeze_classif(x)
+    #x = sequeeze_classif(x)
     return x

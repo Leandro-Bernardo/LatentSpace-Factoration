@@ -23,8 +23,8 @@ class Dataset(LightningDataModule): #Trocar para DataModule?
 
     def prepare_data(self):
         for processed_sample in self.processed_samples:
-            self.true_class_value.append(self.one_hot[self.mapper.get(processed_sample.sample.get("device")["model"])]) 
-            self.samples_pmf.append(processed_sample.calibrated_pmf)
+            self.true_class_value.append(self.one_hot[self.mapper.get(processed_sample.sample.get("device")["model"])]) # Classe (Modelo celular)
+            self.samples_pmf.append(processed_sample.calibrated_pmf) # Entrada (PMF)
         self.true_class_value = tensor(self.true_class_value)
         self.samples_pmf = from_numpy(self.samples_pmf)
 

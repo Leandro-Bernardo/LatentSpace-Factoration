@@ -1,4 +1,4 @@
-analyte: Null
+analyte: alkalinity
 samples_dir : Null
 feature_extractor: Null
 sweep_id: Null
