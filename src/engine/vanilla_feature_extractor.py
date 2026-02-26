@@ -11,7 +11,7 @@ from pytorch_lightning import LightningModule, Trainer
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 from pytorch_lightning.loggers import WandbLogger
 
-from engine.classifier import sequeeze_classif
+from .classifier import sequeeze_classif
 
 wandb_logger = WandbLogger(log_model="all")
 
