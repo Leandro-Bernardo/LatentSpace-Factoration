@@ -5,17 +5,18 @@ from . import mlp_feature_extractor
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-with open(os.path.join(BASE_DIR, "..", "settings.yml"), "r") as f: # Abrindo yaml das configurações
+with open(os.path.join(BASE_DIR, "..", "settings.yaml"), "r") as f: # Abrindo yaml das configurações
     data_settings = yaml.load(f, Loader=yaml.FullLoader)
-with open(os.path.join(BASE_DIR, "..", "devices_mapper.yml"), "r") as f: # Abrindo yaml dos devices (mapper) 
+with open(os.path.join(BASE_DIR, "..", "devices_mapper.yaml"), "r") as f: # Abrindo yaml dos devices (mapper) 
     data_devices = yaml.load(f, Loader=yaml.FullLoader)
 
 current_analyte = data_settings['analyte']
 num_class =  len(data_devices[current_analyte])
 input_size = 756
 
-# Classificador pro script do David
 class Fluttershy(torch.nn.Module):
+    """_Classificador feito utilizando uma MLP_
+    """
     def __init__(self, device: str = "cuda", **kwargs):
         super().__init__()
 
@@ -60,8 +61,8 @@ class VanillaClassifier(torch.nn.Module):
     def __init__(self, device: str = "cuda", **kwargs):
         super().__init__()
         self.num_class = num_class
-
-        final_conv = torch.nn.Conv2d(512, self.num_classes, kernel_size=1) # Alterar o tamanho da entrada (baseado no pmf.shape)
+        # TODO: [David] Alterar o tamanho da entrada (baseado no pmf.shape)
+        final_conv = torch.nn.Conv2d(512, self.num_classes, kernel_size=1) 
         self.layer_classfier = torch.nn.Sequential(
             torch.nn.Dropout(p=0.5), final_conv, torch.nn.ReLU(inplace=True), torch.nn.AvgPool2d(13)
         )

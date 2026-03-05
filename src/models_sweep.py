@@ -9,14 +9,14 @@ import shutil
 from typing import Dict, List
 from wandb.wandb_run import Run
 from pytorch_lightning import Trainer
-from engine.classifier import vanilla
+from engine.classifier import VanillaClassifier
 from engine.data_manager import Dataset, BaseModel
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
-from engine.mlp_feature_extractor import SNModel
-from engine.vanilla_feature_extractor import SNModel
+from engine.mlp_feature_extractor import Mlp_feature_extractor
+from engine.vanilla_feature_extractor import Vanilla_feature_extractor
 
 os.environ["WANDB_CONSOLE"] = "off"  # Needed to avoid "ValueError: signal only works in main thread of the main interpreter".
 
@@ -24,7 +24,7 @@ os.environ["WANDB_CONSOLE"] = "off"  # Needed to avoid "ValueError: signal only 
 torch.set_float32_matmul_precision('high')
 
 
-with open(os.path.join(".", "settings.yaml"), "r") as f:
+with open(os.path.join("src/settings.yaml"), "r") as f:
     settings = yaml.load(f, Loader=yaml.FullLoader)
     # global variables
     ANALYTE = settings["analyte"]
@@ -42,11 +42,11 @@ with open(os.path.join(".", "settings.yaml"), "r") as f:
     GRADIENT_CLIPPING = settings["model"]["gradient_clipping"]
 
 # presaved devices
-with open(os.path.join("devices_mapper.yaml"), "r") as f:
+with open(os.path.join("src/devices_mapper.yaml"), "r") as f:
     devices = yaml.load(f, Loader=yaml.FullLoader)
 
 # reads sweep configs yaml
-with open('./sweep_config.yaml') as f:
+with open('src/sweep_config.yaml') as f:
         SWEEP_CONFIGS = yaml.load(f, Loader=yaml.FullLoader)
 
 # empy cache dir
@@ -58,7 +58,7 @@ except OSError as e:
     raise f"Error: {e}, manually delete {CACHE_DIR}"
 
 # network options
-networks_choices = {"vanilla": vanilla}
+networks_choices = {"vanilla": VanillaClassifier}
 MODEL_NETWORK = networks_choices[MODEL]
 
 def prepare_samples_dataset(analyte:str, dir:str, cache:str, devices: Dict[str, Dict[str, int]]):
