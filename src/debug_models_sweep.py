@@ -42,6 +42,7 @@ with open(os.path.join("src/settings.yaml"), "r") as f:
 
 CLASSIFIERS = {
     "mlp1": {"model": MLP1,"requires_flatten": True},
+    #TODO verificar se ainda precisa do requires flatten com o processamento atual
     "squeezenet": {"model": SqueezeNetClassifier, "requires_flatten": False},
               }
 
@@ -49,6 +50,10 @@ CLASSIFIER_CONFIG = {
                     "model_class": CLASSIFIERS[CLASSIFIER_MODEL]["model"],
                      "requires_flatten": CLASSIFIERS[CLASSIFIER_MODEL]["requires_flatten"]
                     }
+
+# # presaved devices
+# with open(os.path.join("src/devices_mapper.yaml"), "r") as f:
+#     devices = yaml.load(f, Loader=yaml.FullLoader)
 
 # reads sweep configs yaml
 with open('src/sweep_config.yaml') as f:
@@ -137,45 +142,36 @@ with open('src/sweep_config.yaml') as f:
 
 def main():
 
-    # starts wandb
-    with wandb.init(config=SWEEP_CONFIGS) as run:
-        assert isinstance(run, Run)
-        # initialize logger
-        logger = WandbLogger(project=f"{ANALYTE}_latent_space_factoring", experiment=run)
-        # gets sweep configs
-        configs = run.config.as_dict()
-
         # checkpoint callback setting
         #checkpoint_callback = ModelCheckpoint(dirpath=CHECKPOINT_ROOT, filename= run.name, save_top_k=1, monitor='Loss/Val', mode='min', enable_version_counter=False, save_last=False, save_weights_only=True)#every_n_epochs=CHECKPOINT_SAVE_INTERVAL)
 
         # load and prepare dataset
         #samples, processed_samples, mapper = prepare_samples_dataset(ANALYTE, SAMPLES_DIR, CACHE_DIR, devices)
-        saved_samples_path = "none"
-        data_module = Dataset(saved_samples_path)
+    saved_samples_path = "none"
+    data_module = Dataset(saved_samples_path)
 
-        # load model
-        model = BaseModel(classifier_config=CLASSIFIER_CONFIG, loss_function=LOSS_FUNCTION, batch_size=configs["batch_size"], learning_rate=configs["lr"], learning_rate_patience=LR_PATIENCE, sweep_config = configs)
-        # define trainer settings
-        trainer = Trainer(#callbacks=[EarlyStopping(monitor="test_loss", mode="min")], logger=logger)
-                        logger = logger,
-                        accelerator = "gpu",
-                        max_epochs = MAX_EPOCHS,
-                        callbacks = [#checkpoint_callback,
-                                    LearningRateMonitor(logging_interval='epoch'),
-                                    EarlyStopping(
-                                                monitor="Loss/Val",
-                                                mode="min",
-                                                patience= EARLY_STOP_PATIENCE
-                                            ),],
-                        gradient_clip_val = configs["gradient_clip"],
-                        gradient_clip_algorithm = "value",  # https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#gradient-clipping
-                        log_every_n_steps = 1,
-                        num_sanity_val_steps = 0,
-                        enable_progress_bar = True,
-                        detect_anomaly = True,
-                        )
-        # fit a model
-        trainer.fit(model=model, datamodule=data_module)#, train_dataloaders=dataset
+    # load model
+    model = BaseModel(classifier_config=CLASSIFIER_CONFIG, loss_function=LOSS_FUNCTION, batch_size=16, learning_rate=0.01, learning_rate_patience=LR_PATIENCE)
+    # define trainer settings
+    trainer = Trainer(#callbacks=[EarlyStopping(monitor="test_loss", mode="min")], logger=logger)
+                    accelerator = "cpu",
+                    max_epochs = MAX_EPOCHS,
+                    callbacks = [#checkpoint_callback,
+                                LearningRateMonitor(logging_interval='epoch'),
+                                EarlyStopping(
+                                            monitor="Loss/Val",
+                                            mode="min",
+                                            patience= EARLY_STOP_PATIENCE
+                                        ),],
+                    gradient_clip_val = 0.5,
+                    gradient_clip_algorithm = "value",  # https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#gradient-clipping
+                    log_every_n_steps = 1,
+                    num_sanity_val_steps = 0,
+                    enable_progress_bar = True,
+                    detect_anomaly = True,
+                    )
+    # fit a model
+    trainer.fit(model=model, datamodule=data_module)#, train_dataloaders=dataset
 
 if __name__ == "__main__":
     main()

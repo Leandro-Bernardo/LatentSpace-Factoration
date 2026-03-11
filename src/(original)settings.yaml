@@ -1,0 +1,14 @@
+analyte: Null            # all analytes are available
+samples_dir : Null       # base dir containing all samples
+sweep_id: Null           # wandb created id sweep
+feature_extractor: Null  # squeezenet or vgg11
+return_node: Null        # if null, will return the predefined node of each feature extractor
+frozen_weights: Null     # true or false (currently, we only use true)
+classifier_model: Null   # mlp1 or squeezenet
+
+model:
+  max_epochs: 0
+  #learning_rate: 0
+  learning_rate_patience: 0 # reduce on plateau technique
+  loss_function: 0
+  gradient_clipping: 0
