@@ -4,11 +4,11 @@ sweep_id: null           # wandb created id sweep
 feature_extractor: squeezenet  # squeezenet or vgg11
 return_node: null        # if null, will return the predefined node of each feature extractor
 frozen_weights: true     # true or false (currently, we only use true)
-classifier_model: mlp1   # mlp1 or squeezenet
+classifier_model: DynamicMLP   # DynamicMLP, mlp1, squeezenet
 
 model:
-  max_epochs: 0
+  max_epochs: 10
   #learning_rate: 0
   learning_rate_patience: 0 # reduce on plateau technique
-  loss_function: 0
+  loss_function: "cross_entropy"  # accepts only crossentropy
   gradient_clipping: 0
