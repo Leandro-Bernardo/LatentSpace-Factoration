@@ -13,7 +13,6 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
 
-#from src.engine._feature_extractors import *
 from engine.models import *
 
 os.environ["WANDB_CONSOLE"] = "off"  # Needed to avoid "ValueError: signal only works in main thread of the main interpreter".
@@ -41,7 +40,8 @@ with open(os.path.join("src/settings.yaml"), "r") as f:
     GRADIENT_CLIPPING = settings["model"]["gradient_clipping"]
 
 CLASSIFIERS = {
-    "mlp1": {"model": MLP1,"requires_flatten": True},
+    "mlp1": {"model": MLP1, "requires_flatten": True},
+    "DynamicMLP": {"model": DynamicMLP, "requires_flatten": True},
     "squeezenet": {"model": SqueezeNetClassifier, "requires_flatten": False},
               }
 
@@ -50,90 +50,12 @@ CLASSIFIER_CONFIG = {
                      "requires_flatten": CLASSIFIERS[CLASSIFIER_MODEL]["requires_flatten"]
                     }
 
+LOSSES_FUNCTIONS = {'cross_entropy': nn.CrossEntropyLoss()}
+CHOSEN_LOSS = LOSSES_FUNCTIONS.get(LOSS_FUNCTION)
+
 # reads sweep configs yaml
 with open('src/sweep_config.yaml') as f:
         SWEEP_CONFIGS = yaml.load(f, Loader=yaml.FullLoader)
-
-# # empty cache dir
-# try:
-#     shutil.rmtree(CACHE_DIR)
-#     #print(f"Directory '{CACHE_DIR}' and its contents deleted successfully.")
-#     os.makedirs(CACHE_DIR, exist_ok = False)
-# except OSError as e:
-#     raise f"Error: {e}, manually delete {CACHE_DIR}"
-
-# #TODO usar untyped storage para evitar processar tudo novamente
-# def prepare_samples_dataset(analyte:str, dir:str, cache:str, devices: Dict[str, Dict[str, int]]):
-
-#     preprocessing = {
-#                 "alkalinity":{"dataset": ca.alkalinity.AlkalinitySampleDataset, "processed_dataset": ca.alkalinity.ProcessedAlkalinitySampleDataset},
-#                 "chloride": {"dataset": ca.chloride.ChlorideSampleDataset, "processed_dataset": ca.chloride.ProcessedChlorideSampleDataset},
-#                 "sulfate": {"dataset": ca.sulfate.SulfateSampleDataset, "processed_dataset": ca.sulfate.ProcessedSulfateSampleDataset},
-#                 "phosphate": {"dataset": ca.phosphate.PhosphateSampleDataset, "processed_dataset": ca.phosphate.ProcessedPhosphateSampleDataset},
-#                 "bisulfite": {"dataset": ca.bisulfite2d.Bisulfite2DSampleDataset, "processed_dataset": ca.bisulfite2d.ProcessedBisulfite2DSampleDataset},
-#                 "iron2": {"dataset": ca.iron2.Iron2SampleDataset, "processed_dataset": ca.iron2.ProcessedIron2SampleDataset},
-#                 "iron3": {"dataset": ca.iron3.Iron3SampleDataset, "processed_dataset": ca.iron3.ProcessedIron3SampleDataset},
-#                 "iron_oxid": {"dataset": ca.iron_oxid.IronOxidSampleDataset, "processed_dataset": ca.iron_oxid.ProcessedIronOxidSampleDataset},
-#                 "ph": {"dataset": ca.ph.PhSampleDataset, "processed_dataset": ca.ph.ProcessedPhSampleDataset},
-#                 }
-
-#     #TODO resolver cenário em que não tem pca previamente calculado
-#     pca_stats = {
-#             "bisulfite"  : {"lab_mean": np.load(ca.bisulfite2d.PCA_STATS)['lab_mean']  , "lab_sorted_eigenvectors": np.load(ca.bisulfite2d.PCA_STATS)['lab_sorted_eigenvectors']},
-#             "chloride"  : {"lab_mean": np.load(ca.chloride.PCA_STATS)['lab_mean']  , "lab_sorted_eigenvectors": np.load(ca.chloride.PCA_STATS)['lab_sorted_eigenvectors']},
-#             "iron2"  : {"lab_mean": np.load(ca.iron2.PCA_STATS)['lab_mean']  , "lab_sorted_eigenvectors": np.load(ca.iron2.PCA_STATS)['lab_sorted_eigenvectors']},
-#             "iron3"  : {"lab_mean": np.load(ca.iron3.PCA_STATS)['lab_mean']  , "lab_sorted_eigenvectors": np.load(ca.iron3.PCA_STATS)['lab_sorted_eigenvectors']},
-#             #"iron_oxid"  : {"lab_mean": np.load(ca.iron_oxid.PCA_STATS)['lab_mean']  , "lab_sorted_eigenvectors": np.load(ca.iron_oxid.PCA_STATS)['lab_sorted_eigenvectors']},
-#             "phosphate"  : {"lab_mean": np.load(ca.phosphate.PCA_STATS)['lab_mean']  , "lab_sorted_eigenvectors": np.load(ca.phosphate.PCA_STATS)['lab_sorted_eigenvectors']},
-#             }
-
-#     sample_dataset = preprocessing[analyte]["dataset"]
-#     processed_dataset = preprocessing[analyte]["processed_dataset"]
-
-#     # samples preprocessing
-#     samples = sample_dataset(
-#         base_dirs = dir,
-#         progress_bar = True,
-#         skip_blank_samples = False,
-#         skip_incomplete_samples = True,
-#         skip_inference_sample= True,
-#         skip_training_sample = False,
-#         verbose = True
-#     )
-#     if analyte in pca_stats.keys(): # does have PCA
-#         processed_samples = processed_dataset(
-#                 dataset = samples,
-#                 cache_dir = cache,
-#                 num_augmented_samples = 0,
-#                 progress_bar = True,
-#                 transform = None,
-#                 lab_mean= pca_stats[f"{analyte}"]['lab_mean'],
-#                 lab_sorted_eigenvectors = pca_stats[f"{analyte}"]['lab_sorted_eigenvectors'])
-#     else: # doenst have PCA
-#         processed_samples = processed_dataset(
-#             dataset = samples,
-#             cache_dir = cache,
-#             num_augmented_samples = 0,
-#             progress_bar = True,
-#             transform = None, )
-
-#     assert len(samples) == len(processed_samples), "samples and processed samples missmatch size"
-
-#     current_samples_devices = set([i.sample.get("device")["model"] for i in processed_samples])
-#     if analyte not in devices.keys():
-#         devices[f"{analyte}"] = {model:i for model, i in enumerate(current_samples_devices, start=0)}
-#         with open("devices.yaml", "w", encoding="utf-8") as f:
-#             yaml.dump(devices, f, sort_keys=False, allow_unicode=True)
-
-#     for model in current_samples_devices:
-#         if model not in devices.get(analyte).keys():
-#             idx = max(devices.get(analyte).values()) + 1
-#             devices.get(analyte)[model] = idx
-#         with open("devices.yaml", "w", encoding="utf-8") as f:
-#             yaml.dump(devices, f, sort_keys=False, allow_unicode=True)
-
-#     return samples, processed_samples, devices
-
 
 def main():
 
@@ -150,11 +72,11 @@ def main():
 
         # load and prepare dataset
         #samples, processed_samples, mapper = prepare_samples_dataset(ANALYTE, SAMPLES_DIR, CACHE_DIR, devices)
-        saved_samples_path = "none"
-        data_module = Dataset(saved_samples_path)
+
+        data_module = Dataset(ANALYTE)
 
         # load model
-        model = BaseModel(classifier_config=CLASSIFIER_CONFIG, loss_function=LOSS_FUNCTION, batch_size=configs["batch_size"], learning_rate=configs["lr"], learning_rate_patience=LR_PATIENCE, sweep_config = configs)
+        model = BaseModel(classifier_config=CLASSIFIER_CONFIG, loss_function=CHOSEN_LOSS, batch_size=configs["batch_size"], learning_rate=configs["lr"], learning_rate_patience=LR_PATIENCE, sweep_config = configs)
         # define trainer settings
         trainer = Trainer(#callbacks=[EarlyStopping(monitor="test_loss", mode="min")], logger=logger)
                         logger = logger,

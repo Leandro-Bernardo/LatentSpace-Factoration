@@ -2,11 +2,13 @@ import torch, os, yaml
 from torch.optim import SGD
 from pytorch_lightning import LightningDataModule, LightningModule
 from torch.utils.data import random_split, DataLoader, TensorDataset
-from torch import Generator, tensor, from_numpy
+from torch import Generator
 from typing import Any, Dict, List, Tuple
 from .models import *
+from math import ceil
 import chemical_analysis as ca
 import numpy as np
+from tqdm import tqdm
 
 with open(os.path.join(os.path.dirname(__file__), "..", "settings.yaml"), "r") as f:
     data_settings = yaml.load(f, Loader=yaml.FullLoader)
@@ -22,10 +24,9 @@ class Preprocessing():
         self.analyte = analyte
         self.sample_dir = sample_dir
         self.cache_dir = cache_dir
-        self.devices = devices  # Lazy Initialization
+        self.devices = devices
         self.save_path = os.path.join(os.path.dirname(__file__), "..")
-        self.feature_extractor = FeatureExtractor(backbone=backbone, return_node=return_node, freeze=frozen_weights, requires_flatten=requires_flatten)
-
+        self.feature_extractor = FeatureExtractor(analyte=self.analyte, backbone=backbone, return_node=return_node, requires_flatten=requires_flatten)
 
     def prepare_samples_dataset(self):
 
@@ -42,6 +43,7 @@ class Preprocessing():
                     }
 
         #TODO resolver cenário em que não tem pca previamente calculado
+        #TODO conferir se está tudo correto com os PCAs
         pca_stats = {
                 "bisulfite"  : {"lab_mean": np.load(ca.bisulfite2d.PCA_STATS)['lab_mean']  , "lab_sorted_eigenvectors": np.load(ca.bisulfite2d.PCA_STATS)['lab_sorted_eigenvectors']},
                 "chloride"  : {"lab_mean": np.load(ca.chloride.PCA_STATS)['lab_mean']  , "lab_sorted_eigenvectors": np.load(ca.chloride.PCA_STATS)['lab_sorted_eigenvectors']},
@@ -102,35 +104,62 @@ class Preprocessing():
         # extract features with selected backbone
         features = []
         labels = []
+        shape = None
         num_classes = len(current_samples_devices)
-        one_hot_encodding = torch.nn.functional.one_hot(torch.arange(0, num_classes), num_classes=num_classes)
-        name_to_idx = {name.lower(): idx for idx, name in self.devices.get(self.analyte).items()}
+        one_hot_encodding = torch.nn.functional.one_hot(torch.arange(0, num_classes), num_classes=num_classes) # one hot encodding for classes
+        name_to_idx = {name.lower(): idx for idx, name in self.devices.get(self.analyte).items()} # mapper
+        pretrained_model = self.feature_extractor._load_from_checkpoint()  # loads pretrained model
         # TODO otimizar para processar com GPU e batches
-        for processed_sample in processed_samples:
-            # process input X (pmf)
+        for processed_sample in tqdm(processed_samples, desc = 'extracting features'):
+            # process the input X (pmf)
             pmf_tensor = torch.tensor(processed_sample.calibrated_pmf).unsqueeze(0)
-            features.append(self.feature_extractor(pmf_tensor))
-            # process output y (cellphone model)
+            current_pmf_extracted_features = pretrained_model(pmf_tensor).get('feature')
+            current_pmf_extracted_features_shape = current_pmf_extracted_features.shape # shape : (batch, channel, height, width)
+            features.append(current_pmf_extracted_features.detach().cpu().numpy())
+            # process the output y (cellphone model)
             sample_device = processed_sample.sample.get("device")["model"].lower()
             sample_device_idx = name_to_idx.get(sample_device)
             labels.append(one_hot_encodding[sample_device_idx])
-        # salvar os dados como memmap
+            # assures samples have same shape
+            if shape != None:
+                assert shape == current_pmf_extracted_features_shape
+            else:
+                shape = current_pmf_extracted_features_shape
 
+        # salvar os dados como memmap  (https://github.com/numpy/numpy/blob/main/numpy/_core/memmap.py#L23-L362)
+        # TODO testar aqui
+        save_path = os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset")
+        os.makedirs(save_path, exist_ok=True)
+        x_save_path = os.path.join(save_path, f"{self.analyte}_processed_samples.dat")
+        y_save_path = os.path.join(save_path, f"{self.analyte}_labels.dat")
+        N, C, H, W = len(processed_samples), current_pmf_extracted_features_shape[-3], current_pmf_extracted_features_shape[-2], current_pmf_extracted_features_shape[-1]
+        x_memmap = np.memmap(x_save_path, dtype = np.float32, mode = 'w+', shape = (N, C, H, W))
+        y_memmap = np.memmap(y_save_path, dtype = np.float32, mode = 'w+', shape = (N, num_classes))
+        # write data on memmap obj
+        for i in tqdm(range(N), desc= 'saving data'):
+            x_memmap[i] = features[i]
+            y_memmap[i] = labels[i]
 
+        x_memmap.flush()
+        y_memmap.flush()
+
+        # write data metadata
+        with open(os.path.join(save_path, f"{self.analyte}_metadata.yaml"), "w", encoding="utf-8") as f:
+                yaml.dump(tuple([num_classes, N, C, H, W]), f, sort_keys=False, allow_unicode=True)
+
+        print(" ")
 class Dataset(LightningDataModule): #Trocar para DataModule?
-    def __init__(self, saved_samples_path: str, **kwargs ): #samples, processed_samples, mapper: Dict, args, **kwags):
+    def __init__(self, analyte: str, **kwargs ): #samples, processed_samples, mapper: Dict, args, **kwags):
         super().__init__()
-        # TODO apagar desnecessarios
-        # self.samples = samples
-        # self.processed_samples = processed_samples
-        # self.current_analyte = data_settings['analyte']
-        # self.mapper = devices[current_analyte]
-        # self.one_hot = torch.nn.functional.one_hot(torch.arange(0, num_class), num_classes=num_class)
-        self.saved_samples_path = saved_samples_path
+        self.analyte = analyte
 
     def prepare_data(self):
         try:
-            torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
+            load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
+            with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
+                num_classes, N, C, H, W = yaml.load(f, Loader=yaml.FullLoader)
+            X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
+            y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, num_classes))
         except:
             import shutil
 
@@ -161,33 +190,38 @@ class Dataset(LightningDataModule): #Trocar para DataModule?
                                           frozen_weights=frozen_weights,)
             preprocessing.prepare_samples_dataset()
 
-            # carregar memmap data aqui
+            load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
+            with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
+                num_classes, N, C, H, W = yaml.load(f, Loader=yaml.FullLoader)
+            X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
+            y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, num_classes))
 
-        # TODO ajustar a partir daqui (ja que a extracao foi feita na classe Preprocessing())
-        for processed_sample in self.processed_samples:
-            self.true_class_value.append(self.one_hot[self.mapper.get(processed_sample.sample.get("device")["model"])]) # Classe (Modelo celular)
-            self.samples_pmf.append(processed_sample.calibrated_pmf) # Entrada (PMF)
-        self.true_class_value = tensor(self.true_class_value)
-        self.samples_pmf = from_numpy(self.samples_pmf)
+
+        sample_extracted_features = torch.from_numpy(X)
+        true_class_value = torch.tensor(y)
+        self.dataset = TensorDataset(sample_extracted_features, true_class_value)
 
     def setup(self, stage:str):
-        len_dataset = len(self.processed_samples)
-        n_train = int(0.6*len_dataset)
-        n_val = int(0.2*len_dataset)
+        len_dataset = len(self.dataset)
+        # ~80% ~20% ~20%
+        n_train = ceil(0.6*len_dataset)
+        n_val = ceil(0.2*len_dataset)
         n_test = len_dataset - n_train - n_val
 
-        train_samples, val_samples, test_samples = random_split(self.samples, [n_train, n_val, n_test], generator = Generator().manual_seed(42))
-        train_models, val_models, test_models = random_split(self.models, [n_train, n_val, n_test], generator = Generator().manual_seed(42))
+        train_set, val_set, test_set = random_split(self.dataset, [n_train, n_val, n_test], generator = Generator().manual_seed(42))
+        #train_models, val_models, test_models = random_split(self.true_class_value, [n_train, n_val, n_test], generator = Generator().manual_seed(42))
 
         if stage == "fit":
-            self.dataset_train = TensorDataset(train_samples, train_models)
+            self.dataset_train = train_set #TensorDataset(train_samples, train_models)
+            self.dataset_val = val_set
 
         elif stage == "validate":
-            self.dataset_val = TensorDataset(val_samples, val_models)
+            self.dataset_val = val_set #TensorDataset(val_samples, val_models)
 
         elif stage == "test":
-            self.dataset_test = TensorDataset(test_samples, test_models)
+            self.dataset_test = test_set #TensorDataset(test_samples, test_models)
 
+    #TODO verificar se batchsize está como hiperparametro
     def train_dataloader(self):
         return DataLoader(self.dataset_train, batch_size = 32, shuffle=True)
 
@@ -222,15 +256,16 @@ class BaseModel(LightningModule):
             devices = yaml.load(f, Loader=yaml.FullLoader)
 
         analyte = data_settings['analyte']
-        num_class = len(devices[analyte])
+        num_classes = len(devices[analyte])
 
-        self.classifier = self.classifier_config["model_class"](num_class=num_class)
+        self.classifier = self.classifier_config["model_class"](num_classes=num_classes)
+        self.requires_flatten = self.classifier_config["requires_flatten"]
 
     def configure_optimizers(self):
         self.optimizer = SGD(self.parameters(), lr = self.learning_rate)
         # self.reduce_lr_on_plateau = ReduceLROnPlateau(self.optimizer, mode='min', patience=self.learning_rate_patience)
 
-        return {f"optimizer: self.optimizer"}
+        return {f"optimizer": self.optimizer}
         # return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
         #return [self.optmizer], [self.reduce_lr_on_plateau]
 
@@ -243,10 +278,11 @@ class BaseModel(LightningModule):
 
         return x
 
-    # TODO verificar o dado de entrada
     #defines basics operations for train, validadion and test
     def _any_step(self, batch: Tuple[torch.tensor, torch.tensor], stage: str):
         X, y = batch[0].squeeze(), batch[1].squeeze()
+        if self.requires_flatten:
+            X = torch.flatten(X, start_dim=1)
         predicted_value = self(X)    # o proprio objeto de BaseModel é o modelo (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
         predicted_value = predicted_value.squeeze()
         # Compute and log the loss value.
@@ -266,6 +302,7 @@ class BaseModel(LightningModule):
     def test_step(self, batch: List[torch.tensor]):#, batch_idx: int):
         return self._any_step(batch, "Test")
 
+#TODO verificar on_epoch_end()
     # def _any_epoch_end(self, stage: str):
     #     metrics: MetricCollection = self.metrics[stage]  # type: ignore
     #     self.log_dict({f'{metric_name}/{stage}/Epoch': value for metric_name, value in metrics.compute().items()}, on_step=False, on_epoch=True) # logs metrics on epoch end
@@ -274,11 +311,11 @@ class BaseModel(LightningModule):
         #loss = self.trainer.callback_metrics[f"Loss/{stage}"]
         #print(f"Epoch {self.current_epoch} - Loss/{stage}: {loss.item()}")
 
-    def on_train_epoch_end(self):
-        self._any_epoch_end("Train")
+    # def on_train_epoch_end(self):
+    #     self._any_epoch_end("Train")
 
-    def on_validation_epoch_end(self):
-        self._any_epoch_end("Val")
+    # def on_validation_epoch_end(self):
+    #     self._any_epoch_end("Val")
 
-    def on_test_epoch_end(self):
-        self._any_epoch_end("Test")
+    # def on_test_epoch_end(self):
+    #     self._any_epoch_end("Test")
