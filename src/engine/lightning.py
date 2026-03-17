@@ -1,8 +1,11 @@
 import torch, os, yaml
 from torch.optim import SGD
+from torch.optim.lr_scheduler import ReduceLROnPlateau
 from pytorch_lightning import LightningDataModule, LightningModule
 from torch.utils.data import random_split, DataLoader, TensorDataset
 from torch import Generator
+from torch.nn import ModuleDict
+from torchmetrics import Accuracy, F1Score, Precision, Recall, MetricCollection
 from typing import Any, Dict, List, Tuple
 from .models import *
 from math import ceil
@@ -89,15 +92,15 @@ class Preprocessing():
         current_samples_devices = set([i.sample.get("device")["model"].lower() for i in processed_samples])
 
         if self.analyte not in self.devices.keys():
-            self.devices[f"{self.analyte}"] = {model:i for model, i in enumerate(current_samples_devices, start=0)}
+            self.devices[f"{self.analyte}"] = {model:i for i, model in enumerate(current_samples_devices, start=0)}
             with open(os.path.join(os.path.dirname(__file__), "..", "devices.yaml"), "w", encoding="utf-8") as f:
                 yaml.dump(self.devices, f, sort_keys=False, allow_unicode=True)
 
         #TODO verificar caso que o celular nao existe mais no dataset (excluir e resetar a contagem / resetar o analito sempre que for usado (no preprocessamento))
         for model in current_samples_devices:
-            if model not in self.devices.get(self.analyte).values():
-                idx = max(self.devices.get(self.analyte).keys()) + 1
-                self.devices.get(self.analyte)[idx] = model
+            if model not in self.devices.get(self.analyte).keys():
+                idx = max(self.devices.get(self.analyte).values()) + 1
+                self.devices.get(self.analyte)[model] = idx
             with open(os.path.join(os.path.dirname(__file__), "..", "devices.yaml"), "w", encoding="utf-8") as f:
                 yaml.dump(self.devices, f, sort_keys=False, allow_unicode=True)
 
@@ -107,7 +110,7 @@ class Preprocessing():
         shape = None
         num_classes = len(current_samples_devices)
         one_hot_encodding = torch.nn.functional.one_hot(torch.arange(0, num_classes), num_classes=num_classes) # one hot encodding for classes
-        name_to_idx = {name.lower(): idx for idx, name in self.devices.get(self.analyte).items()} # mapper
+        #name_to_idx = {idx: name.lower() for name, idx in self.devices.get(self.analyte).items()} # mapper
         pretrained_model = self.feature_extractor._load_from_checkpoint()  # loads pretrained model
         # TODO otimizar para processar com GPU e batches
         for processed_sample in tqdm(processed_samples, desc = 'extracting features'):
@@ -118,7 +121,7 @@ class Preprocessing():
             features.append(current_pmf_extracted_features.detach().cpu().numpy())
             # process the output y (cellphone model)
             sample_device = processed_sample.sample.get("device")["model"].lower()
-            sample_device_idx = name_to_idx.get(sample_device)
+            sample_device_idx = self.devices[f"{self.analyte}"].get(sample_device)
             labels.append(one_hot_encodding[sample_device_idx])
             # assures samples have same shape
             if shape != None:
@@ -147,7 +150,6 @@ class Preprocessing():
         with open(os.path.join(save_path, f"{self.analyte}_metadata.yaml"), "w", encoding="utf-8") as f:
                 yaml.dump(tuple([num_classes, N, C, H, W]), f, sort_keys=False, allow_unicode=True)
 
-        print(" ")
 class Dataset(LightningDataModule): #Trocar para DataModule?
     def __init__(self, analyte: str, **kwargs ): #samples, processed_samples, mapper: Dict, args, **kwags):
         super().__init__()
@@ -157,9 +159,9 @@ class Dataset(LightningDataModule): #Trocar para DataModule?
         try:
             load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
             with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
-                num_classes, N, C, H, W = yaml.load(f, Loader=yaml.FullLoader)
+                self.num_classes, N, C, H, W = yaml.load(f, Loader=yaml.FullLoader)
             X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
-            y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, num_classes))
+            y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, self.num_classes))
         except:
             import shutil
 
@@ -192,14 +194,15 @@ class Dataset(LightningDataModule): #Trocar para DataModule?
 
             load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
             with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
-                num_classes, N, C, H, W = yaml.load(f, Loader=yaml.FullLoader)
+                self.num_classes, N, C, H, W = yaml.load(f, Loader=yaml.FullLoader)
             X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
-            y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, num_classes))
+            y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, self.num_classes))
 
 
         sample_extracted_features = torch.from_numpy(X)
         true_class_value = torch.tensor(y)
         self.dataset = TensorDataset(sample_extracted_features, true_class_value)
+
 
     def setup(self, stage:str):
         len_dataset = len(self.dataset)
@@ -232,41 +235,47 @@ class Dataset(LightningDataModule): #Trocar para DataModule?
         return DataLoader(self.dataset_test, batch_size=32, shuffle=False)
 
 class BaseModel(LightningModule):
-    def __init__(self, *, classifier_config: Dict[str, Any], batch_size: int, loss_function: torch.nn.Module, learning_rate: float, learning_rate_patience: int = None, frozen_weights: bool = True, **kwargs: Any):
+    def __init__(self, *, classifier_config: Dict[str, Any], batch_size: int, loss_function: torch.nn.Module, learning_rate: float, learning_rate_patience: int = None, early_stopping_patience: int = 10, num_classes, frozen_weights: bool = True, **kwargs: Any):
         super().__init__(**kwargs)
         self.classifier_config = classifier_config
         self.classifier = None  # Lazy Initialization
-        self.criterion = loss_function
         self.batch_size = batch_size
+        self.criterion = loss_function
         self.learning_rate = learning_rate
         self.learning_rate_patience = learning_rate_patience
-        # self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
-        #                                                         "MAE": MeanAbsoluteError(),
-        #                                                         "MAPE": MeanAbsolutePercentageError(),
-        #                                                         "MSE": MeanSquaredError(),
-        #                                                         #"WMAPE": WeightedMeanAbsolutePercentageError(),
-        #                                                         #"SMAPE": SymmetricMeanAbsolutePercentageError(),
-        #                                                        }) for mode_name in ["Train", "Val", "Test"]})
-        #self.early_stopping_patience = early_stopping_patience
-
-    def setup(self, stage: str):
-
-        devices_path = os.path.join(os.path.dirname(__file__), "..", "devices.yaml")
-        with open(devices_path, "r") as f:
-            devices = yaml.load(f, Loader=yaml.FullLoader)
-
-        analyte = data_settings['analyte']
-        num_classes = len(devices[analyte])
-
+        self.early_stopping_patience = early_stopping_patience
         self.classifier = self.classifier_config["model_class"](num_classes=num_classes)
         self.requires_flatten = self.classifier_config["requires_flatten"]
+        self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
+                                                    "acc": Accuracy(task="multiclass", num_classes=num_classes),
+                                                    "precision": Precision(task="multiclass", num_classes=num_classes),
+                                                    "recall": Recall(task="multiclass", num_classes=num_classes),
+                                                    "F1-score": F1Score(task="multiclass", num_classes=num_classes)
+                                                    }) for mode_name in ["Train", "Val", "Test"]})
+
+
+
+
+
+    #def setup(self, stage: str):
+
+        # devices_path = os.path.join(os.path.dirname(__file__), "..", "devices.yaml")
+        # with open(devices_path, "r") as f:
+        #     devices = yaml.load(f, Loader=yaml.FullLoader)
+
+        # analyte = data_settings['analyte']
+        # num_classes = len(devices[analyte])
+
+        # self.classifier = self.classifier_config["model_class"](num_classes=num_classes)
+        # self.requires_flatten = self.classifier_config["requires_flatten"]
 
     def configure_optimizers(self):
         self.optimizer = SGD(self.parameters(), lr = self.learning_rate)
-        # self.reduce_lr_on_plateau = ReduceLROnPlateau(self.optimizer, mode='min', patience=self.learning_rate_patience)
+        self.reduce_lr_on_plateau = ReduceLROnPlateau(self.optimizer, mode='min', patience=self.learning_rate_patience)
 
-        return {f"optimizer": self.optimizer}
-        # return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
+
+        return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
+        #return {f"optimizer": self.optimizer}
         #return [self.optmizer], [self.reduce_lr_on_plateau]
 
     # def configure_callbacks(self) -> List[Callback]:
@@ -289,8 +298,9 @@ class BaseModel(LightningModule):
         loss = self.criterion(predicted_value, y)
         self.log(f"Loss/{stage}", loss, prog_bar=True)
         # Compute and log step metrics.
-        # metrics: MetricCollection = self.metrics[stage]  # type: ignore
-        # self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(predicted_value, y).items()})
+        metrics: MetricCollection = self.metrics[stage]  # type: ignore
+        self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(predicted_value, y).items()})
+
         return loss
 
     def training_step(self, batch: List[torch.tensor]):#, batch_idx: int):
@@ -302,20 +312,19 @@ class BaseModel(LightningModule):
     def test_step(self, batch: List[torch.tensor]):#, batch_idx: int):
         return self._any_step(batch, "Test")
 
-#TODO verificar on_epoch_end()
-    # def _any_epoch_end(self, stage: str):
-    #     metrics: MetricCollection = self.metrics[stage]  # type: ignore
-    #     self.log_dict({f'{metric_name}/{stage}/Epoch': value for metric_name, value in metrics.compute().items()}, on_step=False, on_epoch=True) # logs metrics on epoch end
-    #     metrics.reset()
-        # Print loss at the end of each epoch
+    def _any_epoch_end(self, stage: str):
+        metrics: MetricCollection = self.metrics[stage]  # type: ignore
+        self.log_dict({f'{metric_name}/{stage}/Epoch': value for metric_name, value in metrics.compute().items()}, on_step=False, on_epoch=True) # logs metrics on epoch end
+        metrics.reset()
+        #Print loss at the end of each epoch
         #loss = self.trainer.callback_metrics[f"Loss/{stage}"]
         #print(f"Epoch {self.current_epoch} - Loss/{stage}: {loss.item()}")
 
-    # def on_train_epoch_end(self):
-    #     self._any_epoch_end("Train")
+    def on_train_epoch_end(self):
+        self._any_epoch_end("Train")
 
-    # def on_validation_epoch_end(self):
-    #     self._any_epoch_end("Val")
+    def on_validation_epoch_end(self):
+        self._any_epoch_end("Val")
 
-    # def on_test_epoch_end(self):
-    #     self._any_epoch_end("Test")
+    def on_test_epoch_end(self):
+        self._any_epoch_end("Test")

@@ -4,10 +4,6 @@ name: Null
 metric:
   name: Loss/Val
   goal: minimize
-  name: MAE/Val/Epoch
-  goal: minimize
-  name: MAPE/Val/Epoch
-  goal: minimize
 parameters:
   lr:
     max: 0.0001

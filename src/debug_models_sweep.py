@@ -69,9 +69,11 @@ def main():
         # load and prepare dataset
         #samples, processed_samples, mapper = prepare_samples_dataset(ANALYTE, SAMPLES_DIR, CACHE_DIR, devices)
     data_module = Dataset(ANALYTE)
+    data_module.prepare_data()
+    num_classes = data_module.num_classes
 
     # load model
-    model = BaseModel(classifier_config=CLASSIFIER_CONFIG, loss_function=CHOSEN_LOSS, batch_size=16, learning_rate=0.01, learning_rate_patience=LR_PATIENCE)
+    model = BaseModel(classifier_config=CLASSIFIER_CONFIG, loss_function=CHOSEN_LOSS, batch_size=16, learning_rate=0.01, learning_rate_patience=LR_PATIENCE, num_classes=num_classes)
     # define trainer settings
     trainer = Trainer(#callbacks=[EarlyStopping(monitor="test_loss", mode="min")], logger=logger)
                     accelerator = "cpu",
