@@ -53,6 +53,8 @@ CLASSIFIER_CONFIG = {
 LOSSES_FUNCTIONS = {'cross_entropy': nn.CrossEntropyLoss()}
 CHOSEN_LOSS = LOSSES_FUNCTIONS.get(LOSS_FUNCTION)
 
+CHECKPOINT_SAVE_PATH = os.path.join(os.path.dirname(__file__), "..", "checkpoints")
+
 # reads sweep configs yaml
 with open('src/sweep_config.yaml') as f:
         SWEEP_CONFIGS = yaml.load(f, Loader=yaml.FullLoader)
@@ -68,21 +70,20 @@ def main():
         configs = run.config.as_dict()
 
         # checkpoint callback setting
-        #checkpoint_callback = ModelCheckpoint(dirpath=CHECKPOINT_ROOT, filename= run.name, save_top_k=1, monitor='Loss/Val', mode='min', enable_version_counter=False, save_last=False, save_weights_only=True)#every_n_epochs=CHECKPOINT_SAVE_INTERVAL)
-
-        # load and prepare dataset
-        #samples, processed_samples, mapper = prepare_samples_dataset(ANALYTE, SAMPLES_DIR, CACHE_DIR, devices)
+        checkpoint_callback = ModelCheckpoint(dirpath=CHECKPOINT_SAVE_PATH, filename= run.name, save_top_k=1, monitor='Loss/Val', mode='min', enable_version_counter=False, save_last=False, save_weights_only=True)
 
         data_module = Dataset(ANALYTE)
+        data_module.prepare_data()
+        num_classes = data_module.num_classes
 
         # load model
-        model = BaseModel(classifier_config=CLASSIFIER_CONFIG, loss_function=CHOSEN_LOSS, batch_size=configs["batch_size"], learning_rate=configs["lr"], learning_rate_patience=LR_PATIENCE, sweep_config = configs)
+        model = BaseModel(classifier_config=CLASSIFIER_CONFIG, loss_function=CHOSEN_LOSS, batch_size=configs["batch_size"], learning_rate=configs["lr"], learning_rate_patience=LR_PATIENCE, num_classes = num_classes, sweep_config = configs)
         # define trainer settings
         trainer = Trainer(#callbacks=[EarlyStopping(monitor="test_loss", mode="min")], logger=logger)
                         logger = logger,
                         accelerator = "gpu",
                         max_epochs = MAX_EPOCHS,
-                        callbacks = [#checkpoint_callback,
+                        callbacks = [checkpoint_callback,
                                     LearningRateMonitor(logging_interval='epoch'),
                                     EarlyStopping(
                                                 monitor="Loss/Val",
@@ -97,7 +98,7 @@ def main():
                         detect_anomaly = True,
                         )
         # fit a model
-        trainer.fit(model=model, datamodule=data_module)#, train_dataloaders=dataset
+        trainer.fit(model=model, datamodule=data_module)
 
 if __name__ == "__main__":
     main()
