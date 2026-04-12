@@ -1,14 +1,13 @@
-analyte: alkalinity            # all analytes are available
-samples_dir : D:\dataset\alkalinity       # base dir containing all samples
-sweep_id: null           # wandb created id sweep
-feature_extractor: squeezenet  # squeezenet or vgg11
-return_node: null        # if null, will return the predefined node of each feature extractor
-frozen_weights: true     # true or false (currently, we only use true)
-classifier_model: DynamicMLP   # DynamicMLP, mlp1, squeezenet
+analyte:             # all analytes are available
+samples_dir :        # base dir containing all samples
+sweep_id: null       # wandb created id sweep
+feature_extractor:   # squeezenet or vgg11
+return_node: null    # if null, will return the predefined node of each feature extractor
+frozen_weights: true # true or false (currently, we only use true)
+classifier_model:    # DynamicMLP, mlp1, squeezenet
 
 model:
-  max_epochs: 10
-  #learning_rate: 0
-  learning_rate_patience: 0 # reduce on plateau technique
-  loss_function: "cross_entropy"  # accepts only crossentropy
-  gradient_clipping: 0
+  max_epochs:             # maximum epochs
+  learning_rate_patience: # reduce on plateau technique
+  loss_function:          # accepts only cross_entropy
+  gradient_clipping:      # value for gradient clipping

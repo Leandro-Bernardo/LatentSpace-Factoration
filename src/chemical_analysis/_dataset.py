@@ -17,32 +17,38 @@ DATETIME_FORMAT: Final[str] = "%Y.%m.%d %H:%M:%S %z"
 CONCENTRATION_UNIT_FROM_FUNCTION: Final[Dict[str, str]] = {
     "ACID": "MOL_PER_LITER",
     "BISULFITE": "MILLIGRAM_PER_LITER",
+    "BUFFER" : "MILLIGRAM_PER_LITER",
     "FORMALDEHYDE": "MILLIGRAM_PER_LITER",
     "COSOLVENT": "PERCENT",
     "COMPLEXING": "MOL_PER_LITER",
     "DYE": "MILLIGRAM_PER_LITER",
+    "IONIC_STRENGTH": "MOL_PER_LITER",
     "ION": "MOL_PER_LITER",
     "LIQUIDATOR": "MOL_PER_LITER",
     "MODIFYING": "PERCENT_WEIGHT_VOLUME",
     "PRECIPITANT": "MOL_PER_LITER",
     "REDUCING": "MOL_PER_LITER",
-    "MILLIVOLTS": "MILLIVOLTS"
+    "MILLIVOLTS": "MILLIVOLTS",
+    "OXIDANT": "MOL_PER_LITER",
 }
 
 
 SOLUTION_COMPONENT_FUNCTIONS: Final[Dict[str, str]] = {
     "ACID": "Ácido",
     "BISULFITE": "Bisulfito",
+    "BUFFER": "Buffer",
     "FORMALDEHYDE": "Folmaldeído",
     "COSOLVENT": "Co-Solvente",
     "COMPLEXING": "Complexante",
+    "IONIC_STRENGTH": "Força Iônica",
     "DYE": "Indicador",
     "ION": "Força Iônica",
     "LIQUIDATOR": "Liquidante",
     "MODIFYING": "Modificador",
     "PRECIPITANT": "Precipitante",
     "REDUCING": "Redutor",
-    "MILLIVOLTS": "Millivolt" # CONFIMAR COM LEANDRO SE DEVERIA SER ISSO MESMO
+    "MILLIVOLTS": "Millivolt",
+    "OXIDANT": "Oxidante"
 
 }
 
@@ -61,7 +67,8 @@ UNITS: Final[Dict[str, str]] = {
 
     "MILLIGRAM_PER_LITER_OF_IRON2": "mg Fe2+/L",        #ferro2
     "MILLIGRAM_PER_LITER_OF_IRON3": "mg Fe3+/L",        #ferro3
-    "PARTS_PER_MILLION": "ppm",   #emulsão e suspensão
+    "MILLIGRAM_PER_LITER_OF_TOTAL_IRON": "mg Fe/L",
+    "PARTS_PER_MILLION": "ppm",                         #emulsão e suspensão
 
     "MILLIVOLTS": "mV",                                 #redox
     "POWER_OF_HYDROGEN": None,                          #pH
