@@ -3,3 +3,5 @@ src/engine/__pycache__
 processed_dataset/
 src/lightning_logs
 src/devices.yaml
+
+src/debug_models_sweep.py
