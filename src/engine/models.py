@@ -52,12 +52,11 @@ class FeatureExtractor(nn.Module): # feature extractor backbone
                         "sulfate": {"squeezenet" : sulfate.NETWORK_CHECKPOINT, "vgg11" : sulfate.UPNETWORK_CHECKPOINT},
                         }
 
-    def __init__(self, analyte: str, backbone: Optional[str] = "squeezenet", return_node: Optional[str] = None, requires_flatten: bool = False, *args, **kwargs):
+    def __init__(self, analyte: str, backbone: Optional[str] = "squeezenet", return_node: Optional[str] = None, *args, **kwargs):
         super().__init__()
         self.analyte = analyte
         self.backbone = backbone
         self.return_node = return_node
-        #self.requires_flatten = requires_flatten
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
     def _load_from_checkpoint(self, *args, **kwargs):
@@ -95,8 +94,6 @@ class FeatureExtractor(nn.Module): # feature extractor backbone
 
         out = self.extractor(x)
         x = out['feature']
-        # if self.requires_flatten:
-        #     x = torch.flatten(x, 1)
         return x
 
 class MLP1(torch.nn.Module):
@@ -162,9 +159,10 @@ class SqueezeNetClassifier(torch.nn.Module):
 class DynamicMLP(nn.Module):
     """_Classificador dinamico utilizando uma MLP_
     """
-    def __init__(self, input_dim: int = 30720, num_classes: int = 3):
+    def __init__(self, input_dim: int, num_classes: int):
         super().__init__()
         self.num_classes = num_classes
+        self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1)) # apply avgPool (global pool if output shape is (1,1))
 
         def nearest_power_of_two(n):
             return 2 ** (n.bit_length() - 1)
@@ -173,13 +171,17 @@ class DynamicMLP(nn.Module):
         dims = []
 
         first_dim = nearest_power_of_two(input_dim)
+        if first_dim == input_dim:
+            first_dim = first_dim // 2
         dims = [input_dim, first_dim]
 
         while dims[-1] // 2 >= self.num_classes:
             dims.append(dims[-1] // 2)
 
         for i in range(len(dims) - 1):
+            layers.append(nn.Dropout(0.3))
             layers.append(nn.Linear(dims[i], dims[i+1]))
+            layers.append(nn.BatchNorm1d(dims[i+1]))
             layers.append(nn.ReLU())
 
         layers.append(nn.Linear(dims[-1], self.num_classes))
@@ -187,4 +189,16 @@ class DynamicMLP(nn.Module):
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):
+        x = self.pool(x)           # (N, C, 1, 1)
+        x = torch.flatten(x, 1)   # (N, C)
         return self.model(x)
+
+    # def __init__(self, num_classes):
+    #     super().__init__()
+    #     self.pool = nn.AdaptiveAvgPool2d((1,1))
+    #     self.fc = nn.Linear(512, num_classes)
+
+    # def forward(self, x):
+    #     x = self.pool(x)
+    #     x = torch.flatten(x, 1)
+    #     return self.fc(x)
