@@ -1,2 +1,5 @@
 src/chemical_analysis
 src/engine/__pycache__
+processed_dataset/
+src/lightning_logs
+src/devices.yaml
