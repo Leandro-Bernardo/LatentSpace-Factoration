@@ -8,14 +8,11 @@ import yaml, os
 from collections import OrderedDict
 from chemical_analysis import alkalinity, bisulfite2d, chloride, iron2, iron32d, ph, phosphate, redox, sulfate # TODO alterar versao de sulfato para sulfato 2D
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-with open(os.path.join(BASE_DIR, "..", "settings.yaml"), "r") as f:
-    data_settings = yaml.load(f, Loader=yaml.FullLoader)
+# with open(os.path.join(BASE_DIR, "..", "settings.yaml"), "r") as f:
+#     data_settings = yaml.load(f, Loader=yaml.FullLoader)
 
-#input_size = 756
-
-# pegar modelo pre treinado do projeto
 class FeatureExtractor(nn.Module): # feature extractor backbone
     # class attrs
     squeezenets = {
@@ -193,12 +190,3 @@ class DynamicMLP(nn.Module):
         x = torch.flatten(x, 1)   # (N, C)
         return self.model(x)
 
-    # def __init__(self, num_classes):
-    #     super().__init__()
-    #     self.pool = nn.AdaptiveAvgPool2d((1,1))
-    #     self.fc = nn.Linear(512, num_classes)
-
-    # def forward(self, x):
-    #     x = self.pool(x)
-    #     x = torch.flatten(x, 1)
-    #     return self.fc(x)

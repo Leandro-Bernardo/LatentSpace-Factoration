@@ -20,8 +20,9 @@ os.environ["WANDB_CONSOLE"] = "off"  # Needed to avoid "ValueError: signal only 
 # reduces mat mul precision (for performance)
 torch.set_float32_matmul_precision('high')
 
+BASE_DIR = os.path.dirname(__file__)
 
-with open(os.path.join("src/settings.yaml"), "r") as f:
+with open(os.path.join(f"{BASE_DIR}/settings.yaml"), "r") as f:
     settings = yaml.load(f, Loader=yaml.FullLoader)
     # global variables
     ANALYTE = settings["analyte"]
@@ -76,8 +77,12 @@ def main():
         data_module.prepare_data()
         num_classes = data_module.num_classes
 
+        with open(os.path.join(BASE_DIR, "..", f"processed_dataset/{ANALYTE}_metadata.yaml"), "r") as f:
+            metadata = yaml.load(f, Loader=yaml.FullLoader)
+        input_dim = metadata["num_channels"]
+
         # load model
-        model = BaseModel(classifier_config=CLASSIFIER_CONFIG, loss_function=CHOSEN_LOSS, learning_rate=configs["lr"], learning_rate_patience=LR_PATIENCE, num_classes = num_classes, sweep_config = configs)
+        model = BaseModel(classifier_config=CLASSIFIER_CONFIG, input_dim=input_dim, loss_function=CHOSEN_LOSS, learning_rate=0.0001, learning_rate_patience=LR_PATIENCE, num_classes=num_classes)
         # define trainer settings
         trainer = Trainer(#callbacks=[EarlyStopping(monitor="test_loss", mode="min")], logger=logger)
                         logger = logger,

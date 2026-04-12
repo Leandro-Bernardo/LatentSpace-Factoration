@@ -146,9 +146,18 @@ class Preprocessing():
 
         # write data metadata (num classes, num samples, num feature maps (channels), height, width)
         with open(os.path.join(save_path, f"{self.analyte}_metadata.yaml"), "w", encoding="utf-8") as f:
-                yaml.dump(tuple([num_classes, N, C, H, W]), f, sort_keys=False, allow_unicode=True)
+            data = {
+                    "num_classes": num_classes,
+                    "num_samples": N,
+                    "num_channels": C,
+                    "height": H,
+                    "width": W
+                }
 
-class Dataset(LightningDataModule): #Trocar para DataModule?
+            yaml.dump(data, f, sort_keys=False, allow_unicode=True)
+
+
+class Dataset(LightningDataModule):
     def __init__(self, analyte: str, sweep_configs = None, **kwargs ): #samples, processed_samples, mapper: Dict, args, **kwags):
         super().__init__()
         self.analyte = analyte
@@ -158,7 +167,8 @@ class Dataset(LightningDataModule): #Trocar para DataModule?
         try:
             load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
             with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
-                self.num_classes, N, C, H, W = yaml.load(f, Loader=yaml.FullLoader)
+                metadata = yaml.load(f, Loader=yaml.FullLoader)
+            self.num_classes, N, C, H, W = metadata["num_classes"], metadata["num_samples"], metadata["num_channels"], metadata["height"], metadata["width"]
             X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
             #y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, self.num_classes))
             y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.int64, mode='r', shape=(N))
@@ -191,7 +201,8 @@ class Dataset(LightningDataModule): #Trocar para DataModule?
 
             load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
             with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
-                self.num_classes, N, C, H, W = yaml.load(f, Loader=yaml.FullLoader)
+                metadata = yaml.load(f, Loader=yaml.FullLoader)
+            self.num_classes, N, C, H, W = metadata["num_classes"], metadata["num_samples"], metadata["num_channels"], metadata["height"], metadata["width"]
             X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
             #y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, self.num_classes))
             y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.int64, mode='r', shape=(N))
@@ -232,7 +243,7 @@ class Dataset(LightningDataModule): #Trocar para DataModule?
         return DataLoader(self.dataset_test, batch_size=1, shuffle=False)
 
 class BaseModel(LightningModule):
-    def __init__(self, *, classifier_config: Dict[str, Any], loss_function: torch.nn.Module, learning_rate: float, learning_rate_patience: int = None, early_stopping_patience: int = 10, num_classes, frozen_weights: bool = True, **kwargs: Any):
+    def __init__(self, *, classifier_config: Dict[str, Any], input_dim: int, loss_function: torch.nn.Module, learning_rate: float, learning_rate_patience: int = None, early_stopping_patience: int = 10, num_classes, frozen_weights: bool = True, **kwargs: Any):
         super().__init__(**kwargs)
         self.classifier_config = classifier_config
         self.classifier = None  # Lazy Initialization
@@ -241,7 +252,7 @@ class BaseModel(LightningModule):
         self.learning_rate_patience = learning_rate_patience
         self.early_stopping_patience = early_stopping_patience
         # TODO tornar dinamico a instanciacao dos parametros do modelo (input_dim = 512)
-        self.classifier = self.classifier_config["model_class"](input_dim = 512, num_classes=num_classes)
+        self.classifier = self.classifier_config["model_class"](input_dim = input_dim, num_classes=num_classes)
         self.requires_flatten = self.classifier_config["requires_flatten"]
         self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
                                                     "acc": Accuracy(task="multiclass", num_classes=num_classes),
@@ -269,9 +280,7 @@ class BaseModel(LightningModule):
     #defines basics operations for train, validadion and test
     def _any_step(self, batch: Tuple[torch.tensor, torch.tensor], stage: str):
         X, y = batch[0], batch[1]
-        # if self.requires_flatten:
-        #     X = torch.flatten(X, start_dim=1)
-        predicted_value = self(X)    # o proprio objeto de BaseModel é o modelo (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
+        predicted_value = self(X)    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
         predicted_value = predicted_value.squeeze()
         # Compute and log the loss value.
         loss = self.criterion(predicted_value, y)
