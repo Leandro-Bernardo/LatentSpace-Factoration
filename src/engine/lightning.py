@@ -12,6 +12,7 @@ from math import ceil
 import chemical_analysis as ca
 import numpy as np
 from tqdm import tqdm
+from wandb.plot import confusion_matrix
 
 with open(os.path.join(os.path.dirname(__file__), "..", "settings.yaml"), "r") as f:
     data_settings = yaml.load(f, Loader=yaml.FullLoader)
@@ -260,6 +261,8 @@ class BaseModel(LightningModule):
                                                     "recall": Recall(task="multiclass", num_classes=num_classes),
                                                     "F1-score": F1Score(task="multiclass", num_classes=num_classes)
                                                     }) for mode_name in ["Train", "Val", "Test"]})
+        self.epoch_preds = {stage: [] for stage in ["Train", "Val", "Test"]}
+        self.epoch_targets = {stage: [] for stage in ["Train", "Val", "Test"]}
 
     def configure_optimizers(self):
         self.optimizer = Adam(self.parameters(), lr=1e-3) #SGD(self.parameters(), lr = self.learning_rate)
@@ -288,6 +291,10 @@ class BaseModel(LightningModule):
         # Compute and log step metrics.
         metrics: MetricCollection = self.metrics[stage]  # type: ignore
         self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(predicted_value, y).items()})
+        # Saves predictions for calculate confusion matrix
+        preds = torch.argmax(predicted_value, dim=1)
+        self.epoch_preds[stage].append(preds.detach().cpu())
+        self.epoch_targets[stage].append(y.detach().cpu())
 
         return loss
 
@@ -301,12 +308,24 @@ class BaseModel(LightningModule):
         return self._any_step(batch, "Test")
 
     def _any_epoch_end(self, stage: str):
+        # calculates metrics
         metrics: MetricCollection = self.metrics[stage]  # type: ignore
         self.log_dict({f'{metric_name}/{stage}/Epoch': value for metric_name, value in metrics.compute().items()}, on_step=False, on_epoch=True) # logs metrics on epoch end
         metrics.reset()
-        #Print loss at the end of each epoch
-        #loss = self.trainer.callback_metrics[f"Loss/{stage}"]
-        #print(f"Epoch {self.current_epoch} - Loss/{stage}: {loss.item()}")
+        # plots confusion matrix
+        preds = torch.cat(self.epoch_preds[stage]).numpy()
+        targets = torch.cat(self.epoch_targets[stage]).numpy()
+
+        self.logger.experiment.log({
+            f"confusion_matrix/{stage}": confusion_matrix(
+                preds=preds,
+                y_true=targets
+            ),
+            "epoch": self.current_epoch
+        })
+        # reset buffers
+        self.epoch_preds[stage].clear()
+        self.epoch_targets[stage].clear()
 
     def on_train_epoch_end(self):
         self._any_epoch_end("Train")
