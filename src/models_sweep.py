@@ -38,7 +38,6 @@ with open(os.path.join(f"{BASE_DIR}/settings.yaml"), "r") as f:
     LR_PATIENCE = settings["model"]["learning_rate_patience"]  # reduce on plateau technique
     EARLY_STOP_PATIENCE = 2*LR_PATIENCE + 1                    # early stop technique
     LOSS_FUNCTION = settings["model"]["loss_function"]
-    GRADIENT_CLIPPING = settings["model"]["gradient_clipping"]
 
 CLASSIFIERS = {
     "mlp1": {"model": MLP1, "requires_flatten": True},
@@ -57,11 +56,10 @@ CHOSEN_LOSS = LOSSES_FUNCTIONS.get(LOSS_FUNCTION)
 CHECKPOINT_SAVE_PATH = os.path.join(os.path.dirname(__file__), "..", "checkpoints")
 
 # reads sweep configs yaml
-with open('src/sweep_config.yaml') as f:
+with open(f'{BASE_DIR}/sweep_config.yaml') as f:
         SWEEP_CONFIGS = yaml.load(f, Loader=yaml.FullLoader)
 
 def main():
-
     # starts wandb
     with wandb.init(config=SWEEP_CONFIGS) as run:
         assert isinstance(run, Run)

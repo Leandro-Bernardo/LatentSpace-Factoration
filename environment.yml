@@ -1,31 +1,32 @@
 name: latentspace
 channels:
-  - pytorch
-  - nvidia
+  - defaults
   - conda-forge
 dependencies:
-  - python=3.10
-  - pytorch=2.0 # nvidia canal necessário para utilizar gpu
-  - torchvision
-  - torchaudio
-  - cudatoolkit=11.5
-  - pytorch-lightning #1.4.9 # projeto do encoder
-  - torchmetrics
-  - numpy=1.24
-  - wandb
-  - opencv=4.7 # pip install opencv-contrib-python (Need to import cv2)
-  - pandas
-  - albumentations
-  - GitPython
-  - scikit-image
-  - scikit-learn
-  - scipy
-  - matplotlib
-  - seaborn
-  - pillow
-  - pyyaml
-  - git
+  - nomkl # Fixando a inclusão da libiomp5md.dll para não acontecer duplicação por instalar uma parte das libs por conda e outra por pip
+  - python==3.10
   - pip
-  - plotly
-  - xlsxwriter
-  # pip install fft-conv-pytorch
+  - setuptools==80.9.0
+  - numpy==1.24.4
+  - pandas==2.0.3
+  - scipy==1.10.1
+  - matplotlib==3.7.1
+  - pillow==9.4.0
+  - pyyaml==6.0
+  - pip:
+    - --extra-index-url https://download.pytorch.org/whl/cu118
+    - torch==2.0.1+cu118
+    - torchvision==0.15.2+cu118
+    - torchaudio==2.0.2+cu118
+    - lightning        # Versão compatível com Torch 2.0.x
+    - torchmetrics    # Versão estável para a época do Torch 2.0
+    - fft-conv-pytorch
+    - opencv-python==4.7.0.72
+    - wandb
+    - GitPython==3.1.46
+    - scikit-image==0.21.0
+    - scikit-learn==1.6.1
+    - seaborn==0.13.2
+    - statsmodels==0.14.6
+    - plotly==6.0.0
+    - xlsxwriter==3.2.2

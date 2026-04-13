@@ -3,5 +3,8 @@ src/engine/__pycache__
 processed_dataset/
 lightning_logs
 src/devices.yaml
-
+src/wandb
+wandb/
+checkpoints/
 src/debug_models_sweep.py
+
