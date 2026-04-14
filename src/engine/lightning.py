@@ -282,12 +282,12 @@ class BaseModel(LightningModule):
     # Defines basics operations for train, validadion and test
     def _any_step(self, batch: Tuple[torch.tensor, torch.tensor], stage: str):
         X, y = batch[0], batch[1]
-        predicted_value = self(X)    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
-        predicted_value = predicted_value.squeeze()
+        logits  = self(X)    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
         # Compute and log the loss value.
-        loss = self.criterion(predicted_value, y)
+        loss = self.criterion(logits , y)
         self.log(f"Loss/{stage}", loss, prog_bar=True)
         # Compute and log step metrics.
+        predicted_value = torch.argmax(logits, dim=1)
         metrics: MetricCollection = self.metrics[stage]  # type: ignore
         self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(predicted_value, y).items()})
         return loss
