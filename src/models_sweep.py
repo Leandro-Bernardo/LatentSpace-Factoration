@@ -103,7 +103,5 @@ def main():
         # fit a model
         trainer.fit(model=model, datamodule=data_module)
 
-        trainer.test(model = model, ckpt_path="best", datamodule=data_module)
-
 if __name__ == "__main__":
     main()

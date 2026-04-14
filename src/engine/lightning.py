@@ -11,8 +11,15 @@ from .models import *
 from math import ceil
 import chemical_analysis as ca
 import numpy as np
+import matplotlib
+matplotlib.use("Agg")  # renders plots only in memory
+import matplotlib.pyplot as plt
+#import matplotlib.ticker as ticker
+import wandb
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from tqdm import tqdm
-from wandb.plot import confusion_matrix
+
+
 
 with open(os.path.join(os.path.dirname(__file__), "..", "settings.yaml"), "r") as f:
     data_settings = yaml.load(f, Loader=yaml.FullLoader)
@@ -224,15 +231,9 @@ class Dataset(LightningDataModule):
 
         train_set, val_set, test_set = random_split(self.dataset, [n_train, n_val, n_test], generator = Generator().manual_seed(42))
 
-        if stage == "fit":
-            self.dataset_train = train_set
-            self.dataset_val = val_set
-
-        elif stage == "validate":
-            self.dataset_val = val_set
-
-        elif stage == "test":
-            self.dataset_test = test_set
+        self.dataset_train = train_set
+        self.dataset_val = val_set
+        self.dataset_test = test_set
 
     def train_dataloader(self):
         return DataLoader(self.dataset_train, batch_size = self.sweep_configs["batch_size"], shuffle=True)
@@ -252,7 +253,6 @@ class BaseModel(LightningModule):
         self.learning_rate = learning_rate
         self.learning_rate_patience = learning_rate_patience
         self.early_stopping_patience = early_stopping_patience
-        # TODO tornar dinamico a instanciacao dos parametros do modelo (input_dim = 512)
         self.classifier = self.classifier_config["model_class"](input_dim = input_dim, num_classes=num_classes)
         self.requires_flatten = self.classifier_config["requires_flatten"]
         self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
@@ -261,8 +261,7 @@ class BaseModel(LightningModule):
                                                     "recall": Recall(task="multiclass", num_classes=num_classes),
                                                     "F1-score": F1Score(task="multiclass", num_classes=num_classes)
                                                     }) for mode_name in ["Train", "Val", "Test"]})
-        self.epoch_preds = {stage: [] for stage in ["Train", "Val", "Test"]}
-        self.epoch_targets = {stage: [] for stage in ["Train", "Val", "Test"]}
+        self._inference_time = {"predictions": [], "targets": []}
 
     def configure_optimizers(self):
         self.optimizer = Adam(self.parameters(), lr=1e-3) #SGD(self.parameters(), lr = self.learning_rate)
@@ -280,7 +279,7 @@ class BaseModel(LightningModule):
 
         return x
 
-    #defines basics operations for train, validadion and test
+    # Defines basics operations for train, validadion and test
     def _any_step(self, batch: Tuple[torch.tensor, torch.tensor], stage: str):
         X, y = batch[0], batch[1]
         predicted_value = self(X)    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
@@ -291,11 +290,6 @@ class BaseModel(LightningModule):
         # Compute and log step metrics.
         metrics: MetricCollection = self.metrics[stage]  # type: ignore
         self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(predicted_value, y).items()})
-        # Saves predictions for calculate confusion matrix
-        preds = torch.argmax(predicted_value, dim=1)
-        self.epoch_preds[stage].append(preds.detach().cpu())
-        self.epoch_targets[stage].append(y.detach().cpu())
-
         return loss
 
     def training_step(self, batch: List[torch.tensor]):
@@ -305,27 +299,17 @@ class BaseModel(LightningModule):
         return self._any_step(batch, "Val")
 
     def test_step(self, batch: List[torch.tensor]):
-        return self._any_step(batch, "Test")
+        X, y = batch[0], batch[1]
+        predicted_value = self(X).squeeze()
+        preds = torch.argmax(predicted_value)
+        self._inference_time["predictions"].append(preds.detach().cpu().item())
+        self._inference_time["targets"].append(y.detach().cpu().item())
 
     def _any_epoch_end(self, stage: str):
         # calculates metrics
         metrics: MetricCollection = self.metrics[stage]  # type: ignore
         self.log_dict({f'{metric_name}/{stage}/Epoch': value for metric_name, value in metrics.compute().items()}, on_step=False, on_epoch=True) # logs metrics on epoch end
         metrics.reset()
-        # plots confusion matrix
-        preds = torch.cat(self.epoch_preds[stage]).numpy()
-        targets = torch.cat(self.epoch_targets[stage]).numpy()
-
-        self.logger.experiment.log({
-            f"confusion_matrix/{stage}": confusion_matrix(
-                preds=preds,
-                y_true=targets
-            ),
-            "epoch": self.current_epoch
-        })
-        # reset buffers
-        self.epoch_preds[stage].clear()
-        self.epoch_targets[stage].clear()
 
     def on_train_epoch_end(self):
         self._any_epoch_end("Train")
@@ -333,5 +317,24 @@ class BaseModel(LightningModule):
     def on_validation_epoch_end(self):
         self._any_epoch_end("Val")
 
-    def on_test_epoch_end(self):
-        self._any_epoch_end("Test")
+    # def on_test_epoch_end(self):
+    #     self._any_epoch_end("Test")
+
+    def on_train_end(self):
+        self.trainer.test(model=self, datamodule=self.trainer.datamodule, ckpt_path="best")
+
+        preds   = np.array(self._inference_time["predictions"])
+        targets = np.array(self._inference_time["targets"])
+
+        cm = confusion_matrix(targets, preds)
+        fig, ax = plt.subplots(figsize=(8, 6))
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm)
+        disp.plot(ax=ax, colorbar=True, cmap="Blues")
+        ax.set_title("Confusion Matrix — Best Model (Test Set)")
+        plt.tight_layout()
+
+        self.logger.experiment.log({"confusion_matrix/Test/BestModel": wandb.Image(fig)})
+        plt.savefig("confusion_matrix_best_model.png", dpi=150)
+        plt.close(fig)
+
+        self._inference_time = {"predictions": [], "targets": []} # resets
