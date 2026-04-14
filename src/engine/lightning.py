@@ -16,6 +16,7 @@ matplotlib.use("Agg")  # renders plots only in memory
 import matplotlib.pyplot as plt
 #import matplotlib.ticker as ticker
 import wandb
+#import multiprocessing
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from tqdm import tqdm
 
@@ -310,6 +311,12 @@ class BaseModel(LightningModule):
         X, y = batch[0], batch[1]
         logits = self(X)
         preds = torch.argmax(logits, dim=1)
+
+        metrics: MetricCollection = self.metrics["Test"]
+        metrics(preds, y)
+
+        self._inference_time["predictions"].append(preds.detach().cpu().item())
+        self._inference_time["targets"].append(y.detach().cpu().item())
 
         metrics: MetricCollection = self.metrics["Test"]
         metrics(logits, y)
