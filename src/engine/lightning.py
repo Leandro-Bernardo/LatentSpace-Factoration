@@ -42,15 +42,15 @@ class Preprocessing():
     def prepare_samples_dataset(self):
 
         preprocessing = {
-                    "alkalinity":{"dataset": ca.alkalinity.AlkalinitySampleDataset, "processed_dataset": ca.alkalinity.ProcessedAlkalinitySampleDataset},
-                    "chloride": {"dataset": ca.chloride.ChlorideSampleDataset, "processed_dataset": ca.chloride.ProcessedChlorideSampleDataset},
-                    "sulfate": {"dataset": ca.sulfate.SulfateSampleDataset, "processed_dataset": ca.sulfate.ProcessedSulfateSampleDataset},
-                    "phosphate": {"dataset": ca.phosphate.PhosphateSampleDataset, "processed_dataset": ca.phosphate.ProcessedPhosphateSampleDataset},
-                    "bisulfite": {"dataset": ca.bisulfite2d.Bisulfite2DSampleDataset, "processed_dataset": ca.bisulfite2d.ProcessedBisulfite2DSampleDataset},
-                    "iron2": {"dataset": ca.iron2.Iron2SampleDataset, "processed_dataset": ca.iron2.ProcessedIron2SampleDataset},
-                    "iron3": {"dataset": ca.iron3.Iron3SampleDataset, "processed_dataset": ca.iron3.ProcessedIron3SampleDataset},
-                    "iron_oxid": {"dataset": ca.iron_oxid.IronOxidSampleDataset, "processed_dataset": ca.iron_oxid.ProcessedIronOxidSampleDataset},
-                    "ph": {"dataset": ca.ph.PhSampleDataset, "processed_dataset": ca.ph.ProcessedPhSampleDataset},
+                    "alkalinity":{"dataset": ca.alkalinity.AlkalinitySampleDataset, "processed_dataset": ca.alkalinity.ProcessedAlkalinitySampleDataset, "reduction_level": 0.05},
+                    "chloride": {"dataset": ca.chloride.ChlorideSampleDataset, "processed_dataset": ca.chloride.ProcessedChlorideSampleDataset, "reduction_level": 0.10},
+                    "sulfate": {"dataset": ca.sulfate.SulfateSampleDataset, "processed_dataset": ca.sulfate.ProcessedSulfateSampleDataset, "reduction_level": 0.10},
+                    "phosphate": {"dataset": ca.phosphate.PhosphateSampleDataset, "processed_dataset": ca.phosphate.ProcessedPhosphateSampleDataset, "reduction_level": 0.10},
+                    "bisulfite": {"dataset": ca.bisulfite2d.Bisulfite2DSampleDataset, "processed_dataset": ca.bisulfite2d.ProcessedBisulfite2DSampleDataset, "reduction_level": 0.10},
+                    "iron2": {"dataset": ca.iron2.Iron2SampleDataset, "processed_dataset": ca.iron2.ProcessedIron2SampleDataset, "reduction_level": 0.10},
+                    "iron3": {"dataset": ca.iron3.Iron3SampleDataset, "processed_dataset": ca.iron3.ProcessedIron3SampleDataset, "reduction_level": 0.10},
+                    "iron_oxid": {"dataset": ca.iron_oxid.IronOxidSampleDataset, "processed_dataset": ca.iron_oxid.ProcessedIronOxidSampleDataset, "reduction_level": 0.10},
+                    "ph": {"dataset": ca.ph.PhSampleDataset, "processed_dataset": ca.ph.ProcessedPhSampleDataset, "reduction_level": 0.10},
                     }
 
         #TODO resolver cenário em que não tem pca previamente calculado
@@ -66,6 +66,7 @@ class Preprocessing():
 
         sample_dataset = preprocessing[self.analyte]["dataset"]
         processed_dataset = preprocessing[self.analyte]["processed_dataset"]
+        reduction_level = preprocessing[self.analyte]["reduction_level"]
 
         # samples preprocessing
         samples = sample_dataset(
@@ -112,18 +113,24 @@ class Preprocessing():
             with open(os.path.join(os.path.dirname(__file__), "..", "devices.yaml"), "w", encoding="utf-8") as f:
                 yaml.dump(self.devices, f, sort_keys=False, allow_unicode=True)
 
+        # calculates the ROI based on the reduction level of each analyte
+        print("computing the calibrated PMF ROI")
+        input_roi, input_range = processed_samples.compute_calibrated_pmf_roi(reduction_level)
+        in_x, out_x, in_y, out_y = input_roi[0][0], input_roi[0][1], input_roi[1][0], input_roi[1][1]
         # extract features with selected backbone
         features = []
         labels = []
         shape = None
         num_classes = len(current_samples_devices)
-        pretrained_model = self.feature_extractor._load_from_checkpoint()  # loads pretrained model
+        pretrained_model = self.feature_extractor.load_from_checkpoint()  # loads pretrained model
         pretrained_model.eval()
         # TODO otimizar para processar com GPU e batches
         for processed_sample in tqdm(processed_samples, desc = 'extracting features'):
             # process the input X (pmf)
-            pmf_tensor = torch.tensor(processed_sample.calibrated_pmf).unsqueeze(0)
-            current_pmf_extracted_features = pretrained_model(pmf_tensor).get('feature')
+            pmf_tensor = torch.tensor(processed_sample.calibrated_pmf[in_x:out_x, in_y:out_y])
+            #TODO adaptar o resize do chemical analysis
+            pmf_tensor_resized = torch.nn.functional.interpolate(pmf_tensor.unsqueeze(0).unsqueeze(0), size=(511, 511), mode='bilinear', align_corners=False)
+            current_pmf_extracted_features = pretrained_model(pmf_tensor_resized.squeeze(0)).get('feature')
             current_pmf_extracted_features_shape = current_pmf_extracted_features.shape # shape : (batch, channel, height, width)
             features.append(current_pmf_extracted_features.detach().cpu().numpy())
             # process the output y (cellphone model)
@@ -236,13 +243,13 @@ class Dataset(LightningDataModule):
         self.dataset_test = test_set
 
     def train_dataloader(self):
-        return DataLoader(self.dataset_train, batch_size = self.sweep_configs["batch_size"], shuffle=True)
+        return DataLoader(self.dataset_train, batch_size = self.sweep_configs["batch_size"])#, shuffle=True, num_workers= 2, pin_memory=True, drop_last=True, persistent_workers=True)
 
     def val_dataloader(self):
-        return DataLoader(self.dataset_val, batch_size = self.sweep_configs["batch_size"], shuffle=False)
+        return DataLoader(self.dataset_val, batch_size = self.sweep_configs["batch_size"])#, shuffle=False, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
 
     def test_dataloader(self):
-        return DataLoader(self.dataset_test, batch_size=1, shuffle=False)
+        return DataLoader(self.dataset_test, batch_size=1,  shuffle=False)#, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
 
 class BaseModel(LightningModule):
     def __init__(self, *, classifier_config: Dict[str, Any], input_dim: int, loss_function: torch.nn.Module, learning_rate: float, learning_rate_patience: int = None, early_stopping_patience: int = 10, num_classes, frozen_weights: bool = True, **kwargs: Any):
@@ -299,11 +306,17 @@ class BaseModel(LightningModule):
         return self._any_step(batch, "Val")
 
     def test_step(self, batch: List[torch.tensor]):
+        self.eval()
         X, y = batch[0], batch[1]
-        predicted_value = self(X).squeeze()
-        preds = torch.argmax(predicted_value)
-        self._inference_time["predictions"].append(preds.detach().cpu().item())
-        self._inference_time["targets"].append(y.detach().cpu().item())
+        logits = self(X)
+        preds = torch.argmax(logits, dim=1)
+
+        metrics: MetricCollection = self.metrics["Test"]
+        metrics(preds, y)
+
+        with torch.no_grad():
+            self._inference_time["predictions"].append(preds.detach().cpu().item())
+            self._inference_time["targets"].append(y.detach().cpu().item())
 
     def _any_epoch_end(self, stage: str):
         # calculates metrics
@@ -317,10 +330,11 @@ class BaseModel(LightningModule):
     def on_validation_epoch_end(self):
         self._any_epoch_end("Val")
 
-    # def on_test_epoch_end(self):
-    #     self._any_epoch_end("Test")
+    def on_test_epoch_end(self):
+        self._any_epoch_end("Test")
 
     def on_train_end(self):
+        self.eval()
         self.trainer.test(model=self, datamodule=self.trainer.datamodule, ckpt_path="best")
 
         preds   = np.array(self._inference_time["predictions"])

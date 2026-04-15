@@ -56,7 +56,7 @@ class FeatureExtractor(nn.Module): # feature extractor backbone
         self.return_node = return_node
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    def _load_from_checkpoint(self, *args, **kwargs):
+    def load_from_checkpoint(self, *args, **kwargs):
         if self.backbone == "squeezenet":
             self.backbone = self.squeezenets[self.analyte]
             self.checkpoint = self.checkpoints[self.analyte]["squeezenet"]
