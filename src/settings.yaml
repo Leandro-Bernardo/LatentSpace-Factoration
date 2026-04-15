@@ -7,7 +7,6 @@ frozen_weights: true # true or false (currently, we only use true)
 classifier_model:    # DynamicMLP, mlp1, squeezenet
 
 model:
-  max_epochs:             # maximum epochs
-  learning_rate_patience: # reduce on plateau technique
-  loss_function:          # accepts only cross_entropy
-  gradient_clipping:      # value for gradient clipping
+  max_epochs:              # maximum epochs
+  learning_rate_patience:  # reduce on plateau technique
+  loss_function:           # accepts only cross_entropy
