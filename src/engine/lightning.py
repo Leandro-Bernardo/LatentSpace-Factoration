@@ -263,10 +263,10 @@ class BaseModel(LightningModule):
         self.classifier = self.classifier_config["model_class"](input_dim = input_dim, num_classes=num_classes)
         self.requires_flatten = self.classifier_config["requires_flatten"]
         self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
-                                                    "acc": Accuracy(task="multiclass", num_classes=num_classes),
-                                                    "precision": Precision(task="multiclass", num_classes=num_classes),
-                                                    "recall": Recall(task="multiclass", num_classes=num_classes),
-                                                    "F1-score": F1Score(task="multiclass", num_classes=num_classes)
+                                                    "acc": Accuracy(task="multiclass", num_classes=num_classes, average="macro"),
+                                                    "precision": Precision(task="multiclass", num_classes=num_classes, average="macro"),
+                                                    "recall": Recall(task="multiclass", num_classes=num_classes, average="macro"),
+                                                    "F1-score": F1Score(task="multiclass", num_classes=num_classes, average="macro")
                                                     }) for mode_name in ["Train", "Val", "Test"]})
         self._inference_time = {"predictions": [], "targets": []}
 
@@ -296,7 +296,7 @@ class BaseModel(LightningModule):
         # Compute and log step metrics.
         predicted_value = torch.argmax(logits, dim=1)
         metrics: MetricCollection = self.metrics[stage]  # type: ignore
-        self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(predicted_value, y).items()})
+        self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(logits, y).items()})
         return loss
 
     def training_step(self, batch: List[torch.tensor]):
@@ -312,7 +312,7 @@ class BaseModel(LightningModule):
         preds = torch.argmax(logits, dim=1)
 
         metrics: MetricCollection = self.metrics["Test"]
-        metrics(preds, y)
+        metrics(logits, y)
 
         with torch.no_grad():
             self._inference_time["predictions"].append(preds.detach().cpu().item())
