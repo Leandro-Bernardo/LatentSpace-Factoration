@@ -8,3 +8,4 @@ wandb/
 checkpoints/
 src/debug_models_sweep.py
 src/settings.yaml
+debug/
