@@ -1,6 +1,6 @@
 from argparse import Namespace
-from chemical_analysis import alkalinity, chloride, phosphate, sulfate, sulfate2d, iron3, iron2, bisulfite2d, ph, total_iron, iron_oxide, sweep, ContinuousNetwork, IntervalNetwork, Network, BinaryNetwork
-from chemical_analysis.sweep import DataModule, ContinuousModel, IntervalModel, ProcessedSampleDataset, SampleDataset
+from MABIDs.chemical_analysis import alkalinity, chloride, phosphate, sulfate, sulfate2d, iron3, iron2, bisulfite2d, ph, total_iron, iron_oxide, sweep, ContinuousNetwork, IntervalNetwork, Network, BinaryNetwork
+from MABIDs.chemical_analysis.sweep import DataModule, ContinuousModel, IntervalModel, ProcessedSampleDataset, SampleDataset
 from typing import Dict, Final, List, NamedTuple, Optional, Tuple, Type
 import argparse, inspect, os
 import torch

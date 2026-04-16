@@ -7,6 +7,9 @@ from MABIDs import chemical_analysis as ca
 import yaml, os
 from collections import OrderedDict
 from MABIDs.chemical_analysis import alkalinity, bisulfite2d, chloride, iron2, iron32d, ph, phosphate, redox, sulfate # TODO alterar versao de sulfato para sulfato 2D
+import sys
+import MABIDs.chemical_analysis as ca
+sys.modules['chemical_analysis'] = ca
 
 # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -77,7 +80,6 @@ class FeatureExtractor(nn.Module): # feature extractor backbone
         else:
             raise ValueError("Unsupported Backbone")
 
-        # TODO verificar se está tudo correto (codigo veio do _model.py .load_from_checkpoint())
         state_dict = torch.load(self.checkpoint, map_location = self._device, weights_only=False)
         hyper_parameters = state_dict["hyper_parameters"]
         net = hyper_parameters["network_class"](**hyper_parameters)

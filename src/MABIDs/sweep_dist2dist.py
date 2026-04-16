@@ -3,9 +3,9 @@ import argparse, inspect, os
 import torch
 from typing import Dict, Final, List, Optional, Type
 
-from chemical_analysis import alkalinity, chloride, phosphate, sulfate, sulfate2d, iron3, iron2, bisulfite2d, ph, sweep_dist2dist, Network, ContinuousUpNetwork
-from chemical_analysis.sweep import ContinuousModel
-from chemical_analysis.sweep_dist2dist import ContinuousAutoEncoder, AutoEncoderDataModule
+from MABIDs.chemical_analysis import alkalinity, chloride, phosphate, sulfate, sulfate2d, iron3, iron2, bisulfite2d, ph, sweep_dist2dist, Network, ContinuousUpNetwork
+from MABIDs.chemical_analysis.sweep import ContinuousModel
+from MABIDs.chemical_analysis.sweep_dist2dist import ContinuousAutoEncoder, AutoEncoderDataModule
 from _const import AnalyteClasses, AnalyteName, AnalyteUpClasses, WandbMode, DevMode, Dist2DistArtificialValues
 
 # Default values for development arguments

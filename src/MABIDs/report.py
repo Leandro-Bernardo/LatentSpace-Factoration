@@ -1,7 +1,7 @@
 from argparse import ArgumentParser, Namespace
-from chemical_analysis import alkalinity, chloride, phosphate, sulfate, sulfate2d, bisulfite2d, iron2,iron32d, redox, ph, suspended, total_iron
-from chemical_analysis import WHITEBALANCE_STATS, EstimationFunction, ExpandedSampleDataset, Network, ProcessedSampleDataset, estimate_confidence_in_whitebalance, lab_to_bgr, lab_to_rgb
-from chemical_analysis.typing import AuxiliarySolution, Sample
+from MABIDs.chemical_analysis import alkalinity, chloride, phosphate, sulfate, sulfate2d, bisulfite2d, iron2,iron32d, redox, ph, suspended, total_iron
+from MABIDs.chemical_analysis import WHITEBALANCE_STATS, EstimationFunction, ExpandedSampleDataset, Network, ProcessedSampleDataset, estimate_confidence_in_whitebalance, lab_to_bgr, lab_to_rgb
+from MABIDs.chemical_analysis.typing import AuxiliarySolution, Sample
 from _const import AnalyteName
 from datetime import date, datetime
 from enum import IntEnum, auto, unique
