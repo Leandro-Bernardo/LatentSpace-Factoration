@@ -32,16 +32,22 @@ except:
 
 
 class Preprocessing():
-    def __init__(self, analyte: str, sample_dir: str, cache_dir: str, devices: Dict[str, Dict[str, int]], backbone: str, return_node: Optional[str] = None, frozen_weights: Optional[bool] = True):
+    def __init__(self, analyte: str, sample_dir: str, cache_dir: str, devices: Dict[str, Dict[str, int]], backbone: str, return_node: Optional[str] = None, frozen_weights: Optional[bool] = True, save_pmfs_as_img: Optional[bool] = False ):
         self.analyte = analyte
         self.sample_dir = sample_dir
         self.cache_dir = cache_dir
         self.devices = devices
         self.save_path = os.path.join(os.path.dirname(__file__), "..")
         self.feature_extractor = FeatureExtractor(analyte=self.analyte, backbone=backbone, return_node=return_node)
+        self.save_pmfs_as_img = save_pmfs_as_img
 
     def prepare_samples_dataset(self):
+        processed_samples, reduction_level = self.process_samples()
 
+        self.feature_extraction(processed_samples, reduction_level, self.save_pmfs_as_img)
+
+
+    def process_samples(self):
         preprocessing = {
                     "alkalinity":{"dataset": ca.alkalinity.AlkalinitySampleDataset, "processed_dataset": ca.alkalinity.ProcessedAlkalinitySampleDataset, "reduction_level": 0.05},
                     "chloride": {"dataset": ca.chloride.ChlorideSampleDataset, "processed_dataset": ca.chloride.ProcessedChlorideSampleDataset, "reduction_level": 0.10},
@@ -98,6 +104,14 @@ class Preprocessing():
 
         assert len(samples) == len(processed_samples), "samples and processed samples missmatch size"
 
+        return processed_samples, reduction_level
+
+    def feature_extraction(self, processed_samples, reduction_level, save_pmfs_as_img):
+        if save_pmfs_as_img:
+            pmfs_as_img = {"original_pmf": [],
+                                "roi_pmf": [],
+                        "resized_roi_pmf": []}
+        processed_sample = processed_samples
         # TODO otimizar para ter menos loops
         current_samples_devices = set([i.sample.get("device")["model"].lower() for i in processed_samples])
 
@@ -128,7 +142,9 @@ class Preprocessing():
         # TODO otimizar para processar com GPU e batches
         for processed_sample in tqdm(processed_samples, desc = 'extracting features'):
             # process the input X (pmf)
-            pmf_tensor = torch.tensor(processed_sample.calibrated_pmf[in_x:out_x, in_y:out_y])
+            original_pmf = processed_sample.calibrated_pmf
+            roi_pmf = original_pmf[in_x:out_x, in_y:out_y]
+            pmf_tensor = torch.tensor(roi_pmf)
             #TODO adaptar o resize do chemical analysis
             pmf_tensor_resized = torch.nn.functional.interpolate(pmf_tensor.unsqueeze(0).unsqueeze(0), size=(511, 511), mode='bilinear', align_corners=False)
             current_pmf_extracted_features = pretrained_model(pmf_tensor_resized.squeeze(0)).get('feature')
@@ -143,6 +159,10 @@ class Preprocessing():
                 assert shape == current_pmf_extracted_features_shape
             else:
                 shape = current_pmf_extracted_features_shape
+            if save_pmfs_as_img:
+                pmfs_as_img["original_pmf"].append(original_pmf)
+                pmfs_as_img["roi_pmf"].append(roi_pmf)
+                pmfs_as_img["resized_roi_pmf"].append(pmf_tensor_resized.squeeze())
 
         # saves the processed data as memmaps (https://github.com/numpy/numpy/blob/main/numpy/_core/memmap.py#L23-L362)
         save_path = os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset")
@@ -172,9 +192,38 @@ class Preprocessing():
 
             yaml.dump(data, f, sort_keys=False, allow_unicode=True)
 
+        # saves pmfs as image for debuging
+        if save_pmfs_as_img:
+            assert (len(pmfs_as_img["original_pmf"]) == len(pmfs_as_img["roi_pmf"])) & (len(pmfs_as_img["original_pmf"]) == len(pmfs_as_img["resized_roi_pmf"])) & (len(pmfs_as_img["roi_pmf"]) == len(pmfs_as_img["resized_roi_pmf"]))
+
+            output_dir = os.path.join(os.path.dirname(__file__), "..", "..", "debug", f"{self.analyte}_pmfs")
+            os.makedirs(output_dir, exist_ok=True)
+            for i in range(len(pmfs_as_img["original_pmf"])):
+                original = pmfs_as_img["original_pmf"][i]
+                roi = pmfs_as_img["roi_pmf"][i]
+                resized = pmfs_as_img["resized_roi_pmf"][i]
+
+                fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+
+                axes[0].imshow(original, cmap="viridis")
+                axes[0].set_title(f"Original ({original.shape[0]} x {original.shape[1]})")
+                axes[0].axis("off")
+
+                axes[1].imshow(roi, cmap="viridis")
+                axes[1].set_title(f"ROI ({roi.shape[0]} x {roi.shape[1]})")
+                axes[1].axis("off")
+
+                axes[2].imshow(resized, cmap="viridis")
+                axes[2].set_title(f"Resized ROI ({resized.shape[0]} x {resized.shape[1]})")
+                axes[2].axis("off")
+
+                file_path = os.path.join(output_dir, f"pmf_{i}.png")
+                plt.savefig(file_path, bbox_inches="tight")
+
+                plt.close(fig)
 
 class Dataset(LightningDataModule):
-    def __init__(self, analyte: str, sweep_configs = None, **kwargs ): #samples, processed_samples, mapper: Dict, args, **kwags):
+    def __init__(self, analyte: str, sweep_configs = None, **kwargs ):
         super().__init__()
         self.analyte = analyte
         self.sweep_configs = sweep_configs
@@ -196,6 +245,7 @@ class Dataset(LightningDataModule):
             feature_extractor = data_settings['feature_extractor']
             return_node = data_settings.get('return_node') if isinstance(data_settings.get('return_node'), str) else None
             frozen_weights = data_settings['frozen_weights']
+            save_pmf_as_img = data_settings['save_pmf_as_img']
             # empty cache dir from previous sweep
             try:
                 if os.path.exists(cache_dir):
@@ -212,7 +262,8 @@ class Dataset(LightningDataModule):
                                           devices=devices,
                                           backbone=feature_extractor,
                                           return_node=return_node,
-                                          frozen_weights=frozen_weights,)
+                                          frozen_weights=frozen_weights,
+                                          save_pmfs_as_img=save_pmf_as_img)
             preprocessing.prepare_samples_dataset()
 
             load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
