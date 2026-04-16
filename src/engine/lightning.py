@@ -9,7 +9,7 @@ from torchmetrics import Accuracy, F1Score, Precision, Recall, MetricCollection
 from typing import Any, Dict, List, Tuple
 from .models import *
 from math import ceil
-import chemical_analysis as ca
+from MABIDs import chemical_analysis as ca
 import numpy as np
 import matplotlib
 matplotlib.use("Agg")  # renders plots only in memory

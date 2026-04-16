@@ -9,3 +9,5 @@ checkpoints/
 src/debug_models_sweep.py
 src/settings.yaml
 debug/
+src/MABIDs/dataset
+src/MABIDs/checkpoint
