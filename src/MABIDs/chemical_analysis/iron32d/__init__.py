@@ -9,3 +9,4 @@ if not any(map(lambda name: name.startswith("ANDROID_"), os.environ)):
 
 NETWORK_CHECKPOINT: Final[str] = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "_resources", "Iron32dNetwork.ckpt"))
 PCA_STATS: Final[str] = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "_resources", "Iron32dPcaStats.npz"))
+UPNETWORK_CHECKPOINT: Final[str] = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "_resources", "Iron32UpNetwork.ckpt"))

@@ -11,3 +11,7 @@ src/settings.yaml
 debug/
 src/MABIDs/dataset
 src/MABIDs/checkpoint
+
+src/MABIDs/chemical_analysis/__pycache__/
+
+*.pyc

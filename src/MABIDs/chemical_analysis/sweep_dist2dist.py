@@ -25,7 +25,7 @@ from dist2dist.random_dataset import ItemwiseDataset
 from dist2dist.equidistant_dataset import GroupwiseDataset
 from dist2dist.generated_dataset import GeneratedDataset
 from dist2dist.cyclic import CyclicDataset
-from _const import ModelMode, DevMode, WandbMode, LightningStage, Dist2DistCacheType, Dist2DistArtificialValues
+from src.MABIDs.chemical_analysis._consts import ModelMode, DevMode, WandbMode, LightningStage, Dist2DistCacheType, Dist2DistArtificialValues
 from typing import Any, Dict, List, Optional, Tuple, Type
 from ._model import Network, UpNetwork
 from ._utils import whitebalance
@@ -90,7 +90,7 @@ class AutoEncoderDataModule(LightningDataModule):
         ranges = self._get_candidate_ranges(data=[gv['value'] for gv in grouped_values])
         candidats_in_ranges = list(map(lambda x: self._calculate_candidates_in_range(rng=x), ranges))
         # Selects the indeces of lowers and uppers
-        ls_ups_indexes = list(map(lambda lowers, uppers: self._get_lowers_and_uppers_in_group(lowers, uppers), 
+        ls_ups_indexes = list(map(lambda lowers, uppers: self._get_lowers_and_uppers_in_group(lowers, uppers),
                 [gv['indexes'] for gv in grouped_values[:-1]],
                 [gv['indexes'] for gv in grouped_values[1:]],
         ))
@@ -106,7 +106,7 @@ class AutoEncoderDataModule(LightningDataModule):
         self._store_in_cache_grouped_bounded_analyte(data=real_grouped_bounded_analytes, stage=stage, folder_name=Dist2DistCacheType.TRAINING)
         # Stores in cache the list of Bounded Analyte ready to be used for augmentation
         self._store_in_cache_bounded_analyte(data=artificial_bounded_analytes, stage=stage, folder_name=Dist2DistCacheType.AUGMENTATION)
-   
+
     def prepare_permuted_equidistant_data_any(self, stage: str, subset: TensorDataset) -> None:
         # Sorts the data
         _, expected_values = subset.tensors
@@ -117,7 +117,7 @@ class AutoEncoderDataModule(LightningDataModule):
         ranges = self._get_candidate_ranges(data=[gv['value'] for gv in grouped_values])
         candidats_in_ranges = list(map(lambda x: self._calculate_candidates_in_range(rng=x), ranges))
         # Selects the indeces of lowers and uppers
-        ls_ups_indexes = list(map(lambda lowers, uppers: self._get_lowers_and_uppers_in_group(lowers, uppers), 
+        ls_ups_indexes = list(map(lambda lowers, uppers: self._get_lowers_and_uppers_in_group(lowers, uppers),
                 [gv['indexes'] for gv in grouped_values[:-1]],
                 [gv['indexes'] for gv in grouped_values[1:]],
         ))
@@ -131,7 +131,7 @@ class AutoEncoderDataModule(LightningDataModule):
         self._store_in_cache_bounded_analyte(data=real_bounded_analytes, stage=stage, folder_name=Dist2DistCacheType.TRAINING)
         # Stores in cache the list of Bounded Analyte ready to be used for augmentation
         self._store_in_cache_bounded_analyte(data=artificial_bounded_analytes, stage=stage, folder_name=Dist2DistCacheType.AUGMENTATION)
-    
+
     def prepare_equidistant_data_any(self, stage: str,  subset: TensorDataset) -> None:
         # Sorts the data
         _, expected_values = subset.tensors
@@ -142,7 +142,7 @@ class AutoEncoderDataModule(LightningDataModule):
         ranges = self._get_candidate_ranges(data=[gv['value'] for gv in grouped_values])
         candidats_in_ranges = list(map(lambda x: self._calculate_candidates_in_range(rng=x), ranges))
         # Selects the indeces of lowers and uppers
-        ls_ups_indexes = list(map(lambda lowers, uppers: self._get_lowers_and_uppers_in_group(lowers, uppers), 
+        ls_ups_indexes = list(map(lambda lowers, uppers: self._get_lowers_and_uppers_in_group(lowers, uppers),
                 [gv['indexes'] for gv in grouped_values[:-1]],
                 [gv['indexes'] for gv in grouped_values[1:]],
         ))
@@ -158,7 +158,7 @@ class AutoEncoderDataModule(LightningDataModule):
         self._store_in_cache_grouped_bounded_analyte(data=real_grouped_bounded_analytes, stage=stage, folder_name=Dist2DistCacheType.TRAINING)
         # Stores in cache the list of Bounded Analyte ready to be used for augmentation
         self._store_in_cache_bounded_analyte(data=artificial_bounded_analytes, stage=stage, folder_name=Dist2DistCacheType.AUGMENTATION)
-   
+
     def prepare_random_data_any(self, stage: str, subset: TensorDataset) -> None:
         # Transforms ready to use data into cached data
         cached_data = self._parse_ready_to_use_data_to_cached_data(subset=subset)
@@ -173,7 +173,7 @@ class AutoEncoderDataModule(LightningDataModule):
         # Stores in cache the list of Bounded Analyte ready to be used for augmentation
         self._store_in_cache_bounded_analyte(data=augmented_data_cache, stage=stage, folder_name=Dist2DistCacheType.AUGMENTATION)
         # Stores in cache the list of Bounded Analyte ready to be used in the Generator trainig
-        self._store_in_cache_bounded_analyte(data=bounded_analyte, stage=stage, folder_name=Dist2DistCacheType.TRAINING)  
+        self._store_in_cache_bounded_analyte(data=bounded_analyte, stage=stage, folder_name=Dist2DistCacheType.TRAINING)
 
     def setup(self, stage: str) -> None:
         if stage == "fit":
@@ -205,10 +205,10 @@ class AutoEncoderDataModule(LightningDataModule):
         if training_mode:
             bounded_analyte = self._load_bounded_analyte_from_cache(stage=stage, folder_name=Dist2DistCacheType.TRAINING)
             dims = len(subset[0][0].shape)
-            
+
             if dims > 1:
                 afine_parameters = self._load_afine_parameters_from_cache(stage=stage)
-                
+
             match self.values_dist:
                 case Dist2DistArtificialValues.RANDOM:
                     return ItemwiseDataset(bounded_analyte=bounded_analyte, subset=subset, afine_parameters=afine_parameters if dims>1 else None, dims=dims)
@@ -519,7 +519,7 @@ class AutoEncoderDataModule(LightningDataModule):
         # Stores data into JSON
         with open(os.path.join(folder_path, f'{stage}-index_permutation.json'), "w") as fout:
             json.dump({"data": data}, fout)
-        
+
     def _load_grouped_bounded_analyte_from_cache(self, stage:str, folder_name:str) -> List[GroupedBoundedAnalyte]:
         folder_path = os.path.join(self.dist2dist_cache_dir, folder_name)
         with open(os.path.join(folder_path, f'{stage}-index_permutation.json'), "r") as fin:
@@ -652,7 +652,7 @@ class AutoEncoderDataModule(LightningDataModule):
             a list of ranges as tuples.
         """
         return [(mn, mx) for mn, mx in zip(data[:-1], data[1:])]
-    
+
     def _calculate_candidates_in_range(self, rng: Tuple[Tensor, Tensor]) -> List[Tensor]:
         """Calculate N equidistant values in a range.
 
@@ -669,7 +669,7 @@ class AutoEncoderDataModule(LightningDataModule):
         N = int(self.artificial_data_percent)+1
         step_size = (rng[1]-rng[0])/N
         return [rng[0]+i*step_size for i in range(N)][1:]
-    
+
     def _get_lowers_and_uppers_in_group(self, lowers: List[Tensor], uppers: List[Tensor]) -> List[Tuple[Tensor, Tensor]]:
         """From a list of lowers and uppers candidates indexes, choses the PMF from wich the artificial ones will be generated.
 
@@ -694,7 +694,7 @@ class AutoEncoderDataModule(LightningDataModule):
             res.append((ls[0], ups[0]))
             ls, ups = ls[1:], ups[1:]
         return res
-    
+
     def _parse_grouped_candidates_to_bounded_analytes(self, range: Tuple[Tensor,Tensor], candidats: List[Tensor], lowers_uppers: List[Tuple[Tensor, Tensor]]) -> List[BoundedAnalyte]:
         """Transforms the artificial candidats, ranges, lowers and uppers candidats in bounded analytes.
 
@@ -717,7 +717,7 @@ class AutoEncoderDataModule(LightningDataModule):
         uppers = [CachedData(value=value, index=indx[1], real=False) for indx, value in zip(lowers_uppers, [range[1]]*len(lowers_uppers))]
         inter_factors = [calculate_interpolation_factor(a=float(rng[0]), b=float(rng[1]), x=cnd) for cnd, rng in zip(candidats, [range]*len(candidats))]
         return [BoundedAnalyte(target=tg, bounders=DataBounders(lower=lw, upper=up), interpolation_factor=itp) for tg, lw, up, itp in zip(targets, lowers, uppers, inter_factors)]
-    
+
     def _parse_grouped_values_to_bounded_analytes(self, data: List[GroupedValues]) -> List[List[BoundedAnalyte]]:
         """Transforms a list of `GoupedValue` into a list of lists of `BoundedAnalyte`
 
@@ -725,14 +725,14 @@ class AutoEncoderDataModule(LightningDataModule):
         ----------
         data : List[GroupedValues]
             a list of ordered grouped values
-        
+
         Returns
         ----------
         List[List[BoundedAnalyte]]
             a list of lists of ordered bounded analytes
         """
         return [self._get_every_index_permutation(target=t, lower=l, upper=u) for t, l, u in zip(data[1:-1], data[:-2], data[2:])]
-    
+
     def _get_every_index_permutation(self, target: GroupedValues, lower: GroupedValues, upper: GroupedValues) -> List[BoundedAnalyte]:
         """Gets every candidate index permutation of target, lower and upper.
 
@@ -744,7 +744,7 @@ class AutoEncoderDataModule(LightningDataModule):
             a list of ordered grouped values lower candidats
         upper : GroupedValues
             a list of ordered grouped values upper candidats
-        
+
         Returns
         ----------
         List[BoundedAnalyte]
@@ -761,7 +761,7 @@ class AutoEncoderDataModule(LightningDataModule):
             ),
             interpolation_factor=inter_fact
         ),target_lower_upper_indxs))
-    
+
     def _create_grouped_bounded_analytes(self, data: List[List[BoundedAnalyte]]) -> List[GroupedBoundedAnalyte]:
         """Transforms a list of lists of Bounded Analyte into a list of Grouped Bounded Analytes.
 
@@ -769,7 +769,7 @@ class AutoEncoderDataModule(LightningDataModule):
         ----------
         data : List[List[BoundedAnalyte]]
             a list of lists of ordered Bounded Analytes
-        
+
         Returns
         ----------
         List[GroupedBoundedAnalyte]
@@ -782,7 +782,7 @@ class AutoEncoderDataModule(LightningDataModule):
             res.append(GroupedBoundedAnalyte(value=d[0]['target']['value'].item(), indexes=[i+indx for i in range(size)]))
             indx += size
         return res
-    
+
 
 class BaseAutoEncoder(ABC, LightningModule):
     def __init__(self, *, early_stopping_patience: int, learning_rate: float, learning_rate_patience: int, weight_decay: float, regressor: Type[Network], generator: Type[UpNetwork], calibrated_pmf_shape: Tuple[int,...], dev_exec_mode: str=DevMode.PROD, dev_log_frequence:int=10, **kwargs: Any) -> None:

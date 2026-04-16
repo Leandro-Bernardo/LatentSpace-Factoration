@@ -7,5 +7,5 @@ from ._utils import bgr_to_lab, compute_calibrated_pmf, compute_theoretical_valu
 import os
 if not any(map(lambda name: name.startswith("ANDROID_"), os.environ)):
     from . import sweep
-    import dist2dist
+    from MABIDs import dist2dist
     from ._dataset import ExpandedSampleDataset, ProcessedSampleDataset, SampleDataset, SizedDataset

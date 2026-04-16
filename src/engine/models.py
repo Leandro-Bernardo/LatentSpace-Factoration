@@ -3,10 +3,10 @@ import torch.nn as nn
 from torchvision import models
 from torchvision.models.feature_extraction import create_feature_extractor
 from typing import List, Dict, Optional
-import chemical_analysis as ca
+from MABIDs import chemical_analysis as ca
 import yaml, os
 from collections import OrderedDict
-from chemical_analysis import alkalinity, bisulfite2d, chloride, iron2, iron32d, ph, phosphate, redox, sulfate # TODO alterar versao de sulfato para sulfato 2D
+from MABIDs.chemical_analysis import alkalinity, bisulfite2d, chloride, iron2, iron32d, ph, phosphate, redox, sulfate # TODO alterar versao de sulfato para sulfato 2D
 
 # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 

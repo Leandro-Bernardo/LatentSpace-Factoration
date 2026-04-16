@@ -9,7 +9,7 @@ from torchvision.transforms import InterpolationMode
 from typing import Tuple, Optional
 from torch import Tensor, FloatTensor, UntypedStorage
 from tqdm import tqdm
-from _const import Dist2DistCacheType
+#from _const import Dist2DistCacheType
 
 def rotate_and_translate(*, input:torch.Tensor, translate:Tuple[int,int], angle:float, center:Tuple[int,int], squeeze:bool=True) ->torch.Tensor:
     """Rotates and Translates a tensor considering a center

@@ -2,7 +2,7 @@ import torch
 import wandb
 import yaml
 import os
-import chemical_analysis as ca
+from MABIDs import chemical_analysis as ca
 import numpy as np
 
 from typing import Dict, List

@@ -1,21 +1,5 @@
 from typing import NamedTuple, Tuple, Type
 
-from .chemical_analysis import Network, UpNetwork
-from .chemical_analysis.sweep import ProcessedSampleDataset, SampleDataset
-
-class AnalyteClasses(NamedTuple):
-    analyte: str
-    expected_range: Tuple[float, float]
-    network_class: Type[Network]
-    sample_dataset_class: Type[SampleDataset]
-    processed_sample_dataset_class: Type[ProcessedSampleDataset]
-
-class AnalyteUpClasses(NamedTuple):
-    analyte: str
-    network_class: Type[UpNetwork]
-    sample_dataset_class: Type[SampleDataset]
-    processed_sample_dataset_class: Type[ProcessedSampleDataset]
-
 class AnalyteName(str):
     ALKALINITY = "alkalinity"
     CHLORIDE = "chloride"

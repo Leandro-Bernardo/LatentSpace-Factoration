@@ -13,7 +13,7 @@ from ._dataset import ExpandedSampleDataset, SampleDataset, ProcessedSampleDatas
 from ._model import Network
 from ._utils import whitebalance, whitebalance_2, bgr_to_lab, lab_to_bgr
 from .typing import CalibratedDistributions, Loss, Values, WhiteBalanceType
-from _const import WandbMode
+from ._consts import WandbMode
 from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from enum import Enum, auto
@@ -31,7 +31,7 @@ from torch.utils.data import DataLoader, random_split, TensorDataset
 from torchmetrics import Accuracy, F1Score, JaccardIndex, MeanAbsoluteError, MeanAbsolutePercentageError, MeanSquaredError, MetricCollection, Precision, Recall, SymmetricMeanAbsolutePercentageError, WeightedMeanAbsolutePercentageError
 from tqdm import tqdm
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Type
-from dist2dist._utils import _check_if_artificial_pmfs_exists, _load_artificial_pmfs_from_cache
+from ..dist2dist._utils import _check_if_artificial_pmfs_exists, _load_artificial_pmfs_from_cache
 from sklearn.metrics import confusion_matrix
 
 os.environ["WANDB_CONSOLE"] = "off"  # Needed to avoid "ValueError: signal only works in main thread of the main interpreter".
@@ -95,7 +95,7 @@ class DataModule(LightningDataModule):
     def _compute_pca_stats(self, subset: ProcessedSampleDataset) -> Dict[str, np.ndarray]:
         # TODO precisa verificar o pq do torch não estar identificando a GPU, talvez precise mexer na biblioteca
         labs = np.empty((3, len(subset)), dtype=np.float32)
-        
+
         match subset._whitebalance_type():
                 case WhiteBalanceType.USING_GRID: # Para os dados de suspensão esse método demora 2 horas e 20 minutos.
                     for index, item in enumerate(tqdm(iter(subset), total=len(subset), desc="Computing PCA statistics", leave=False)):
@@ -127,8 +127,8 @@ class DataModule(LightningDataModule):
                             analyte_masks = np.stack(list(map(lambda item: item[2].sample_analyte_mask, subset_slice_shaped)), axis=0)
                             # Applying white balance 2 using batch and possible loading in GPU
                             bgr = whitebalance_2(
-                                bgrs=torch.from_numpy(bgr, ).to(device), 
-                                bright_masks=torch.from_numpy(bright_masks).to(device), 
+                                bgrs=torch.from_numpy(bgr, ).to(device),
+                                bright_masks=torch.from_numpy(bright_masks).to(device),
                                 analyte_masks=torch.from_numpy(analyte_masks).to(device)
                             ).detach().cpu().numpy().transpose((0, 2, 3, 1))
                             # Applying bgr to lab and setting labs in the correct positions
@@ -351,13 +351,13 @@ class BaseModel(ABC, LightningModule):
             list(map(lambda mode: self.log_continuous_inferences(mode=mode), ["Train", "Val"]))
         if isinstance(self, IntervalModel):
             list(map(lambda mode: self.log_interval_inferences(mode=mode), ["Train", "Val"]))
-    
+
     def on_test_end(self):
         if isinstance(self, ContinuousModel):
             list(map(lambda mode: self.log_continuous_inferences(mode=mode), ["Test"]))
         if isinstance(self, IntervalModel):
             list(map(lambda mode: self.log_interval_inferences(mode=mode), ["Test"]))
-            
+
 
     def log_interval_inferences(self, mode):
         predictions = self.inf_vs_target[mode][0]['predicted'].cpu().numpy().astype(np.uint8)
