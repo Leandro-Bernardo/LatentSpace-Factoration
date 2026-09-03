@@ -21,7 +21,6 @@ from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from tqdm import tqdm
 
 
-
 with open(os.path.join(os.path.dirname(__file__), "..", "settings.yaml"), "r") as f:
     data_settings = yaml.load(f, Loader=yaml.FullLoader)
 try:
@@ -32,14 +31,17 @@ except:
 
 
 class Preprocessing():
-    def __init__(self, analyte: str, sample_dir: str, cache_dir: str, devices: Dict[str, Dict[str, int]], backbone: str, return_node: Optional[str] = None, frozen_weights: Optional[bool] = True, save_pmfs_as_img: Optional[bool] = False ):
+    def __init__(self, analyte: str, sample_dir: str, cache_dir: str, devices: Dict[str, Dict[str, int]], backbone: str, return_node: Optional[str] = None, frozen_weights: Optional[bool] = True, save_pmfs_as_img: Optional[bool] = False, use_pretrained_feature_extractor: bool = True):
         self.analyte = analyte
         self.sample_dir = sample_dir
         self.cache_dir = cache_dir
         self.devices = devices
         self.save_path = os.path.join(os.path.dirname(__file__), "..")
-        self.feature_extractor = FeatureExtractor(analyte=self.analyte, backbone=backbone, return_node=return_node)
         self.save_pmfs_as_img = save_pmfs_as_img
+        self.use_pretrained_feature_extractor = use_pretrained_feature_extractor
+        # choice between using the trained feature extractor (squeezenet or vgg11 model) or training a model end-to-end to (feature extractor + classifier)
+        if self.use_pretrained_feature_extractor:
+            self.feature_extractor = FeatureExtractor(analyte=self.analyte, backbone=backbone, return_node=return_node)
 
     def prepare_samples_dataset(self):
         processed_samples, reduction_level = self.process_samples()
@@ -145,7 +147,13 @@ class Preprocessing():
             pmf_tensor = torch.tensor(roi_pmf)
             #TODO adaptar o resize do chemical analysis
             pmf_tensor_resized = torch.nn.functional.interpolate(pmf_tensor.unsqueeze(0).unsqueeze(0), size=(511, 511), mode='bilinear', align_corners=False)
-            current_pmf_extracted_features = pretrained_model(pmf_tensor_resized.squeeze(0)).get('feature')
+            # if using the pretrained feature extractor, then parse the pmfs for extract features!
+            if self.use_pretrained_feature_extractor:
+                current_pmf_extracted_features = pretrained_model(pmf_tensor_resized.squeeze(0)).get('feature')
+                features.append(current_pmf_extracted_features.detach().cpu().numpy())
+            # else, only saves the pmfs
+            else:
+                features.append(pmf_tensor_resized.squeeze(0).numpy())
             current_pmf_extracted_features_shape = current_pmf_extracted_features.shape # shape : (batch, channel, height, width)
             features.append(current_pmf_extracted_features.detach().cpu().numpy())
             # process the output y (cellphone model)
@@ -300,31 +308,50 @@ class Dataset(LightningDataModule):
 
     def test_dataloader(self):
         return DataLoader(self.dataset_test, batch_size=1,  shuffle=False)#, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
-
 class BaseModel(LightningModule):
-    def __init__(self, *, classifier_config: Dict[str, Any], input_dim: int, loss_function: torch.nn.Module, learning_rate: float, learning_rate_patience: int = None, early_stopping_patience: int = 10, num_classes, frozen_weights: bool = True, **kwargs: Any):
-        super().__init__(**kwargs)
-        self.classifier_config = classifier_config
-        self.classifier = None  # Lazy Initialization
-        self.criterion = loss_function
-        self.learning_rate = learning_rate
-        self.learning_rate_patience = learning_rate_patience
-        self.early_stopping_patience = early_stopping_patience
-        self.classifier = self.classifier_config["model_class"](input_dim = input_dim, num_classes=num_classes)
-        self.requires_flatten = self.classifier_config["requires_flatten"]
-        self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
-                                                    "acc": Accuracy(task="multiclass", num_classes=num_classes, average="macro"),
-                                                    "precision": Precision(task="multiclass", num_classes=num_classes, average="macro"),
-                                                    "recall": Recall(task="multiclass", num_classes=num_classes, average="macro"),
-                                                    "F1-score": F1Score(task="multiclass", num_classes=num_classes, average="macro")
-                                                    }) for mode_name in ["Train", "Val", "Test"]})
-        self._inference_time = {"predictions": [], "targets": []}
+    def __init__(self, *, classifier_config: Dict[str, Any], input_dim: int, loss_function: torch.nn.Module, learning_rate: float, learning_rate_patience: int = None, early_stopping_patience: int = 10, num_classes: int, train_cnn: bool = False, analyte: Optional[str] = None, backbone: Optional[str] = "squeezenet", return_node: Optional[str] = None, cnn_learning_rate: float = 1e-4, **kwargs: Any):
+            super().__init__(**kwargs)
+            self.classifier_config = classifier_config
+            self.criterion = loss_function
+            self.learning_rate = learning_rate
+            self.cnn_learning_rate = cnn_learning_rate
+            self.learning_rate_patience = learning_rate_patience
+            
+            self.early_stopping_patience = early_stopping_patience
+            self.train_cnn = train_cnn
+
+            # Encaixe modular: usa a CNN caso train_cnn=True, senao atua como Identity
+            if self.train_cnn:
+                self.feature_extractor = FeatureExtractor(
+                    analyte=analyte,
+                    backbone=backbone,
+                    return_node=return_node,
+                    frozen_weights=False
+                )
+            else:
+                self.feature_extractor = torch.nn.Identity()
+
+            self.classifier = self.classifier_config["model_class"](input_dim=input_dim, num_classes=num_classes)
+            self.classifier = self.classifier_config["model_class"](input_dim = input_dim, num_classes=num_classes)
+            self.requires_flatten = self.classifier_config["requires_flatten"]
+            self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
+                                                        "acc": Accuracy(task="multiclass", num_classes=num_classes, average="macro"),
+                                                        "precision": Precision(task="multiclass", num_classes=num_classes, average="macro"),
+                                                        "recall": Recall(task="multiclass", num_classes=num_classes, average="macro"),
+                                                        "F1-score": F1Score(task="multiclass", num_classes=num_classes, average="macro")
+                                                        }) for mode_name in ["Train", "Val", "Test"]})
+            self._inference_time = {"predictions": [], "targets": []}
 
     def configure_optimizers(self):
-        self.optimizer = Adam(self.parameters(), lr=1e-3) #SGD(self.parameters(), lr = self.learning_rate)
+        if self.train_cnn:
+            self.optimizer = Adam([
+                {"params": self.feature_extractor.parameters(), "lr": self.cnn_learning_rate},
+                {"params": self.classifier.parameters(), "lr": self.learning_rate}
+            ])
+        else:
+            self.optimizer = Adam(self.classifier.parameters(), lr=self.learning_rate)
+
         self.reduce_lr_on_plateau = ReduceLROnPlateau(self.optimizer, mode='min', patience=self.learning_rate_patience)
-
-
         return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
 
     # def configure_callbacks(self) -> List[Callback]:
@@ -332,8 +359,8 @@ class BaseModel(LightningModule):
     #  return [EarlyStopping(monitor="Loss/Val", mode="min", patience=self.early_stopping_patience)]
 
     def forward(self, x: Any):
+        x = self.feature_extractor(x)
         x = self.classifier(x)
-
         return x
 
     # Defines basics operations for train, validadion and test
