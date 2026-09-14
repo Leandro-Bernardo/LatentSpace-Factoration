@@ -6,7 +6,7 @@ from torch.utils.data import random_split, DataLoader, TensorDataset
 from torch import Generator
 from torch.nn import ModuleDict
 from torchmetrics import Accuracy, F1Score, Precision, Recall, MetricCollection
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Tuple, Optional
 from .models import *
 from math import ceil
 from MABIDs import chemical_analysis as ca
@@ -19,11 +19,8 @@ import wandb
 #import multiprocessing
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from tqdm import tqdm
+from ._configs import *
 
-
-
-with open(os.path.join(os.path.dirname(__file__), "..", "settings.yaml"), "r") as f:
-    data_settings = yaml.load(f, Loader=yaml.FullLoader)
 try:
     with open(os.path.join(os.path.dirname(__file__), "..", "devices.yaml"), "r") as f:
         devices = yaml.load(f, Loader=yaml.FullLoader)
@@ -32,20 +29,23 @@ except:
 
 
 class Preprocessing():
-    def __init__(self, analyte: str, sample_dir: str, cache_dir: str, devices: Dict[str, Dict[str, int]], backbone: str, return_node: Optional[str] = None, frozen_weights: Optional[bool] = True, save_pmfs_as_img: Optional[bool] = False ):
+    def __init__(self, analyte: str, samples_dir: str, cache_dir: str, devices: Dict[str, Dict[str, int]], backbone: str, return_node: Optional[str] = None, debug_save_pmfs_as_img: Optional[bool] = False, save_raw_pmfs: Optional[bool] = False):
         self.analyte = analyte
-        self.sample_dir = sample_dir
+        self.samples_dir = samples_dir
         self.cache_dir = cache_dir
         self.devices = devices
         self.save_path = os.path.join(os.path.dirname(__file__), "..")
-        self.feature_extractor = FeatureExtractor(analyte=self.analyte, backbone=backbone, return_node=return_node)
-        self.save_pmfs_as_img = save_pmfs_as_img
+        self.debug_save_pmfs_as_img = debug_save_pmfs_as_img
+        self.save_raw_pmfs = save_raw_pmfs  # If fine-tuning a pretrained cnn model, raw inputs are required. Therefore, the pmfs are saved rather than the feature maps.
+        if not self.save_raw_pmfs:
+            self.feature_extractor = FeatureExtractor(analyte=self.analyte, backbone=backbone, return_node=return_node, frozen_weights=True)
+        else:
+            self.feature_extractor = None
 
     def prepare_samples_dataset(self):
         processed_samples, reduction_level = self.process_samples()
 
-        self.feature_extraction(processed_samples, reduction_level, self.save_pmfs_as_img)
-
+        self.feature_extraction(processed_samples, reduction_level, self.debug_save_pmfs_as_img)
 
     def process_samples(self):
         preprocessing = {
@@ -75,7 +75,7 @@ class Preprocessing():
 
         # samples preprocessing
         samples = sample_dataset(
-            base_dirs = self.sample_dir,
+            base_dirs = self.samples_dir,
             progress_bar = True,
             skip_blank_samples = True,
             skip_incomplete_samples = True,
@@ -86,7 +86,7 @@ class Preprocessing():
         if self.analyte in pca_stats.keys(): # does have PCA
             processed_samples = processed_dataset(
                     dataset = samples,
-                    cache_dir = self.cache,
+                    cache_dir = self.cache_dir,
                     num_augmented_samples = 0,
                     progress_bar = True,
                     transform = None,
@@ -104,8 +104,8 @@ class Preprocessing():
 
         return processed_samples, reduction_level
 
-    def feature_extraction(self, processed_samples, reduction_level, save_pmfs_as_img):
-        if save_pmfs_as_img:
+    def feature_extraction(self, processed_samples, reduction_level, debug_save_pmfs_as_img):
+        if debug_save_pmfs_as_img:
             pmfs_as_img = {"original_pmf": [],
                                 "roi_pmf": [],
                         "resized_roi_pmf": []}
@@ -128,36 +128,47 @@ class Preprocessing():
 
         # calculates the ROI based on the reduction level of each analyte
         print("computing the calibrated PMF ROI")
-        input_roi, input_range = processed_samples.compute_calibrated_pmf_roi(reduction_level)
+        input_roi = ((168, 309), (242, 332))#, input_range = processed_samples.compute_calibrated_pmf_roi(reduction_level)
         in_x, out_x, in_y, out_y = input_roi[0][0], input_roi[0][1], input_roi[1][0], input_roi[1][1]
         # extract features with selected backbone
         features = []
         labels = []
         shape = None
         num_classes = len(current_samples_devices)
-        pretrained_model = self.feature_extractor.load_from_checkpoint()  # loads pretrained model
-        pretrained_model.eval()
-        # TODO otimizar para processar com GPU e batches
+        if not self.save_raw_pmfs:
+            self.feature_extractor = self.feature_extractor.load_from_checkpoint()  # loads pretrained model
+            self.feature_extractor.eval()
+        else:
+            self.feature_extractor = None
         for processed_sample in tqdm(processed_samples, desc = 'extracting features'):
             # process the input X (pmf)
             original_pmf = processed_sample.calibrated_pmf
             roi_pmf = original_pmf[in_x:out_x, in_y:out_y]
             pmf_tensor = torch.tensor(roi_pmf)
             #TODO adaptar o resize do chemical analysis
+            #TODO definir input size como variavel a ser informada, dependendo do modelo neural
             pmf_tensor_resized = torch.nn.functional.interpolate(pmf_tensor.unsqueeze(0).unsqueeze(0), size=(511, 511), mode='bilinear', align_corners=False)
-            current_pmf_extracted_features = pretrained_model(pmf_tensor_resized.squeeze(0)).get('feature')
-            current_pmf_extracted_features_shape = current_pmf_extracted_features.shape # shape : (batch, channel, height, width)
-            features.append(current_pmf_extracted_features.detach().cpu().numpy())
+            if self.save_raw_pmfs:
+                processed_item = pmf_tensor_resized.squeeze(0).cpu().numpy()
+                metadata_datatype = "preprocessed_pmf_raw_data"
+            else:
+                with torch.no_grad():
+                    extracted = self.feature_extractor(pmf_tensor_resized.squeeze(0))
+                    feature_tensor = extracted.get("feature") if isinstance(extracted, dict) else extracted
+                    processed_item = feature_tensor.squeeze(0).detach().cpu().numpy()
+                metadata_datatype = "preprocessed_pmf_feature_maps"
+            features.append(processed_item)
+            data_shape = processed_item.shape
             # process the output y (cellphone model)
             sample_device = processed_sample.sample.get("device")["model"].lower()
             sample_device_idx = self.devices[f"{self.analyte}"].get(sample_device)
             labels.append(sample_device_idx)
             # assures samples have same shape
             if shape != None:
-                assert shape == current_pmf_extracted_features_shape
+                assert shape == data_shape
             else:
-                shape = current_pmf_extracted_features_shape
-            if save_pmfs_as_img:
+                shape = data_shape
+            if debug_save_pmfs_as_img:
                 pmfs_as_img["original_pmf"].append(original_pmf)
                 pmfs_as_img["roi_pmf"].append(roi_pmf)
                 pmfs_as_img["resized_roi_pmf"].append(pmf_tensor_resized.squeeze())
@@ -167,7 +178,7 @@ class Preprocessing():
         os.makedirs(save_path, exist_ok=True)
         x_save_path = os.path.join(save_path, f"{self.analyte}_processed_samples.dat")
         y_save_path = os.path.join(save_path, f"{self.analyte}_labels.dat")
-        N, C, H, W = len(processed_samples), current_pmf_extracted_features_shape[-3], current_pmf_extracted_features_shape[-2], current_pmf_extracted_features_shape[-1]
+        N, C, H, W = len(processed_samples), data_shape[-3], data_shape[-2], data_shape[-1]
         x_memmap = np.memmap(x_save_path, dtype = np.float32, mode = 'w+', shape = (N, C, H, W))
         y_memmap = np.memmap(y_save_path, dtype = np.int64, mode = 'w+', shape = (N))
         # write data on memmap obj
@@ -185,13 +196,14 @@ class Preprocessing():
                     "num_samples": N,
                     "num_channels": C,
                     "height": H,
-                    "width": W
+                    "width": W,
+                    "datatype": metadata_datatype,
                 }
 
             yaml.dump(data, f, sort_keys=False, allow_unicode=True)
 
         # saves pmfs as image for debuging
-        if save_pmfs_as_img:
+        if debug_save_pmfs_as_img:
             assert (len(pmfs_as_img["original_pmf"]) == len(pmfs_as_img["roi_pmf"])) & (len(pmfs_as_img["original_pmf"]) == len(pmfs_as_img["resized_roi_pmf"])) & (len(pmfs_as_img["roi_pmf"]) == len(pmfs_as_img["resized_roi_pmf"]))
 
             output_dir = os.path.join(os.path.dirname(__file__), "..", "..", "debug", f"{self.analyte}_pmfs")
@@ -221,10 +233,10 @@ class Preprocessing():
                 plt.close(fig)
 
 class Dataset(LightningDataModule):
-    def __init__(self, analyte: str, sweep_configs = None, **kwargs ):
+    def __init__(self, experiment_config: ExperimentConfig, **kwargs ):
         super().__init__()
-        self.analyte = analyte
-        self.sweep_configs = sweep_configs
+        self.analyte = experiment_config.analyte
+        self.experiment_config = experiment_config
 
     def prepare_data(self):
         try:
@@ -237,13 +249,13 @@ class Dataset(LightningDataModule):
             y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.int64, mode='r', shape=(N))
         except:
             import shutil
-            analyte = data_settings["analyte"]
-            sample_dir = data_settings["samples_dir"]
-            cache_dir = os.path.join("..", "cache_dir", analyte)
-            feature_extractor = data_settings['feature_extractor']
-            return_node = data_settings.get('return_node') if isinstance(data_settings.get('return_node'), str) else None
-            frozen_weights = data_settings['frozen_weights']
-            save_pmf_as_img = data_settings['save_pmf_as_img']
+            analyte = self.experiment_config.analyte
+            samples_dir = self.experiment_config.preprocessing.samples_dir
+            cache_dir = self.experiment_config.preprocessing.cache_dir
+            feature_extractor = self.experiment_config.feature_extractor
+            return_node = self.experiment_config.return_node
+            save_raw_pmfs = self.experiment_config.fine_tune_cnn
+            save_pmf_as_img = self.experiment_config.preprocessing.debug_save_pmfs_as_img
             # empty cache dir from previous sweep
             try:
                 if os.path.exists(cache_dir):
@@ -254,14 +266,16 @@ class Dataset(LightningDataModule):
             except OSError as e:
                 raise RuntimeError(f"Could not prepare cache directory {cache_dir}") from e
 
-            preprocessing = Preprocessing(analyte=analyte,
-                                          sample_dir=sample_dir,
-                                          cache_dir=cache_dir,
-                                          devices=devices,
-                                          backbone=feature_extractor,
-                                          return_node=return_node,
-                                          frozen_weights=frozen_weights,
-                                          save_pmfs_as_img=save_pmf_as_img)
+            preprocessing = Preprocessing(
+                                        analyte=analyte,
+                                        samples_dir=samples_dir,
+                                        cache_dir=cache_dir,
+                                        devices=devices,
+                                        backbone=feature_extractor,
+                                        return_node=return_node,
+                                        debug_save_pmfs_as_img=save_pmf_as_img,
+                                        save_raw_pmfs=save_raw_pmfs
+                                        )
             preprocessing.prepare_samples_dataset()
 
             load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
@@ -293,47 +307,62 @@ class Dataset(LightningDataModule):
         self.dataset_test = test_set
 
     def train_dataloader(self):
-        return DataLoader(self.dataset_train, batch_size = self.sweep_configs["batch_size"])#, shuffle=True, num_workers= 2, pin_memory=True, drop_last=True, persistent_workers=True)
+        return DataLoader(self.dataset_train, batch_size = self.experiment_config.batch_size)#, shuffle=True, num_workers= 2, pin_memory=True, drop_last=True, persistent_workers=True)
 
     def val_dataloader(self):
-        return DataLoader(self.dataset_val, batch_size = self.sweep_configs["batch_size"])#, shuffle=False, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
+        return DataLoader(self.dataset_val, batch_size = self.experiment_config.batch_size)#, shuffle=False, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
 
     def test_dataloader(self):
         return DataLoader(self.dataset_test, batch_size=1,  shuffle=False)#, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
 
 class BaseModel(LightningModule):
-    def __init__(self, *, classifier_config: Dict[str, Any], input_dim: int, loss_function: torch.nn.Module, learning_rate: float, learning_rate_patience: int = None, early_stopping_patience: int = 10, num_classes, frozen_weights: bool = True, **kwargs: Any):
-        super().__init__(**kwargs)
-        self.classifier_config = classifier_config
-        self.classifier = None  # Lazy Initialization
-        self.criterion = loss_function
-        self.learning_rate = learning_rate
-        self.learning_rate_patience = learning_rate_patience
-        self.early_stopping_patience = early_stopping_patience
-        self.classifier = self.classifier_config["model_class"](input_dim = input_dim, num_classes=num_classes)
-        self.requires_flatten = self.classifier_config["requires_flatten"]
-        self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
-                                                    "acc": Accuracy(task="multiclass", num_classes=num_classes, average="macro"),
-                                                    "precision": Precision(task="multiclass", num_classes=num_classes, average="macro"),
-                                                    "recall": Recall(task="multiclass", num_classes=num_classes, average="macro"),
-                                                    "F1-score": F1Score(task="multiclass", num_classes=num_classes, average="macro")
-                                                    }) for mode_name in ["Train", "Val", "Test"]})
-        self._inference_time = {"predictions": [], "targets": []}
+    def __init__(self, *,  experiment_configs: ExperimentConfig, num_classes: int, **kwargs: Any):
+            super().__init__(**kwargs)
+            self.criterion = experiment_configs.model.get_loss_module()
+            self.learning_rate = experiment_configs.model.learning_rate
+            self.learning_rate_patience = experiment_configs.model.learning_rate_patience
+            self.early_stopping_patience = experiment_configs.model.early_stopping_patience
+            self.fine_tune_cnn = experiment_configs.fine_tune_cnn
+
+            if self.fine_tune_cnn:
+                self.feature_extractor = FeatureExtractor(
+                    analyte=experiment_configs.analyte,
+                    backbone=experiment_configs.feature_extractor,
+                    return_node=experiment_configs.return_node,
+                    frozen_weights=False
+                    ).load_from_checkpoint()
+            else:
+                self.feature_extractor = torch.nn.Identity()
+
+            classifier_cls, _ = experiment_configs.get_classifier_architecture()
+            if experiment_configs.classifier_model=="squeezenet":
+                self.classifier = classifier_cls(num_classes=num_classes)
+            else:
+                self.classifier = classifier_cls(input_dim=experiment_configs.input_dim, num_classes=num_classes)
+
+            self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
+                                                        "acc": Accuracy(task="multiclass", num_classes=num_classes, average="macro"),
+                                                        "precision": Precision(task="multiclass", num_classes=num_classes, average="macro"),
+                                                        "recall": Recall(task="multiclass", num_classes=num_classes, average="macro"),
+                                                        "F1-score": F1Score(task="multiclass", num_classes=num_classes, average="macro")
+                                                        }) for mode_name in ["Train", "Val", "Test"]})
+            self._inference_time = {"predictions": [], "targets": []}
 
     def configure_optimizers(self):
-        self.optimizer = Adam(self.parameters(), lr=1e-3) #SGD(self.parameters(), lr = self.learning_rate)
+        if self.fine_tune_cnn:
+            self.optimizer = Adam([
+                {"params": self.feature_extractor.parameters(), "lr": self.learning_rate},
+                {"params": self.classifier.parameters(), "lr": self.learning_rate}
+            ])
+        else:
+            self.optimizer = Adam(self.classifier.parameters(), lr=self.learning_rate)
+
         self.reduce_lr_on_plateau = ReduceLROnPlateau(self.optimizer, mode='min', patience=self.learning_rate_patience)
-
-
         return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
 
-    # def configure_callbacks(self) -> List[Callback]:
-    # # Apply early stopping.
-    #  return [EarlyStopping(monitor="Loss/Val", mode="min", patience=self.early_stopping_patience)]
-
     def forward(self, x: Any):
+        x = self.feature_extractor(x)
         x = self.classifier(x)
-
         return x
 
     # Defines basics operations for train, validadion and test
@@ -356,23 +385,15 @@ class BaseModel(LightningModule):
         return self._any_step(batch, "Val")
 
     def test_step(self, batch: List[torch.tensor]):
-        self.eval()
         X, y = batch[0], batch[1]
         logits = self(X)
         preds = torch.argmax(logits, dim=1)
 
-        metrics: MetricCollection = self.metrics["Test"]
-        metrics(preds, y)
+        metrics = self.metrics["Test"]
+        metrics.update(logits, y)
 
-        self._inference_time["predictions"].append(preds.detach().cpu().item())
-        self._inference_time["targets"].append(y.detach().cpu().item())
-
-        metrics: MetricCollection = self.metrics["Test"]
-        metrics(logits, y)
-
-        with torch.no_grad():
-            self._inference_time["predictions"].append(preds.detach().cpu().item())
-            self._inference_time["targets"].append(y.detach().cpu().item())
+        self._inference_time["predictions"].extend(preds.detach().cpu().tolist())
+        self._inference_time["targets"].extend(y.detach().cpu().tolist())
 
     def _any_epoch_end(self, stage: str):
         # calculates metrics

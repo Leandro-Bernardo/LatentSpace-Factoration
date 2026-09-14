@@ -1,3 +1,4 @@
+# models.py
 import torch
 import torch.nn as nn
 from torchvision import models
@@ -6,9 +7,9 @@ from typing import List, Dict, Optional
 from MABIDs import chemical_analysis as ca
 import yaml, os
 from collections import OrderedDict
-from MABIDs.chemical_analysis import alkalinity, bisulfite2d, chloride, iron2, iron32d, ph, phosphate, redox, sulfate # TODO alterar versao de sulfato para sulfato 2D
+from MABIDs.chemical_analysis import alkalinity, bisulfite2d, chloride, iron2, iron32d, ph, phosphate, redox, sulfate
 import sys
-import MABIDs.chemical_analysis as ca
+
 sys.modules['chemical_analysis'] = ca
 
 # BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -16,84 +17,80 @@ sys.modules['chemical_analysis'] = ca
 # with open(os.path.join(BASE_DIR, "..", "settings.yaml"), "r") as f:
 #     data_settings = yaml.load(f, Loader=yaml.FullLoader)
 
-class FeatureExtractor(nn.Module): # feature extractor backbone
-    # class attrs
+class FeatureExtractor(nn.Module):
     squeezenets = {
-                "alkalinity": alkalinity.AlkalinityNetworkSqueezeNetStyle,
-                "bisulfite2d": bisulfite2d.Bisulfite2DNetworkSqueezeNetStyle,
-                "chloride": chloride.ChlorideNetworkSqueezeNetStyle,
-                "iron2": iron2.Iron2NetworkSqueezeNetStyle,
-                "iron3": iron32d.Iron3NetworkSqueezeNetStyle,
-                "ph": ph.PhNetworkSqueezeNetStyle,
-                "phosphate": phosphate.PhosphateNetworkSqueezeNetStyle,
-                "redox": redox.RedoxNetworkSqueezeNetStyle,
-                "sulfate": sulfate.SulfateNetworkSqueezeNetStyle,
-                }
+        "alkalinity": alkalinity.AlkalinityNetworkSqueezeNetStyle,
+        "bisulfite2d": bisulfite2d.Bisulfite2DNetworkSqueezeNetStyle,
+        "chloride": chloride.ChlorideNetworkSqueezeNetStyle,
+        "iron2": iron2.Iron2NetworkSqueezeNetStyle,
+        "iron3": iron32d.Iron3NetworkSqueezeNetStyle,
+        "ph": ph.PhNetworkSqueezeNetStyle,
+        "phosphate": phosphate.PhosphateNetworkSqueezeNetStyle,
+        "redox": redox.RedoxNetworkSqueezeNetStyle,
+        "sulfate": sulfate.SulfateNetworkSqueezeNetStyle,
+    }
     vgg11s = {
-            "alkalinity": alkalinity.AlkalinityNetworkVgg11Style,
-            "bisulfite2d": bisulfite2d.Bisulfite2DNetworkVgg11Style,
-            "chloride": chloride.ChlorideNetworkVgg11Style,
-            "iron2": iron2.Iron2NetworkVgg11Style,
-            "iron3": iron32d.Iron3NetworkVgg11Style,
-            "ph": ph.PhNetworkVgg11Style,
-            "phosphate": phosphate.PhosphateNetworkVgg11Style,
-            "redox": redox.RedoxNetworkVgg11Style,
-            "sulfate": sulfate.SulfateNetworkVgg11Style,
-            }
+        "alkalinity": alkalinity.AlkalinityNetworkVgg11Style,
+        "bisulfite2d": bisulfite2d.Bisulfite2DNetworkVgg11Style,
+        "chloride": chloride.ChlorideNetworkVgg11Style,
+        "iron2": iron2.Iron2NetworkVgg11Style,
+        "iron3": iron32d.Iron3NetworkVgg11Style,
+        "ph": ph.PhNetworkVgg11Style,
+        "phosphate": phosphate.PhosphateNetworkVgg11Style,
+        "redox": redox.RedoxNetworkVgg11Style,
+        "sulfate": sulfate.SulfateNetworkVgg11Style,
+    }
     checkpoints = {
-                        "alkalinity": {"squeezenet" : alkalinity.NETWORK_CHECKPOINT, "vgg11" : alkalinity.UPNETWORK_CHECKPOINT},
-                        "bisulfite2d": {"squeezenet" : bisulfite2d.NETWORK_CHECKPOINT, "vgg11" : bisulfite2d.UPNETWORK_CHECKPOINT},
-                        "chloride": {"squeezenet" : chloride.NETWORK_CHECKPOINT, "vgg11" : chloride.UPNETWORK_CHECKPOINT},
-                        "iron2": {"squeezenet" : iron2.NETWORK_CHECKPOINT, "vgg11" : iron2.UPNETWORK_CHECKPOINT},
-                        "iron3": {"squeezenet" : iron32d.NETWORK_CHECKPOINT, "vgg11" : iron32d.UPNETWORK_CHECKPOINT},
-                        "ph": {"squeezenet" : ph.NETWORK_CHECKPOINT, "vgg11" : ph.UPNETWORK_CHECKPOINT},
-                        "phosphate": {"squeezenet" : phosphate.NETWORK_CHECKPOINT, "vgg11" : phosphate.UPNETWORK_CHECKPOINT},
-                        "redox": {"squeezenet" : redox.NETWORK_CHECKPOINT, "vgg11" : redox.UPNETWORK_CHECKPOINT},
-                        "sulfate": {"squeezenet" : sulfate.NETWORK_CHECKPOINT, "vgg11" : sulfate.UPNETWORK_CHECKPOINT},
-                        }
+        "alkalinity": {"squeezenet": alkalinity.NETWORK_CHECKPOINT, "vgg11": alkalinity.UPNETWORK_CHECKPOINT},
+        "bisulfite2d": {"squeezenet": bisulfite2d.NETWORK_CHECKPOINT, "vgg11": bisulfite2d.UPNETWORK_CHECKPOINT},
+        "chloride": {"squeezenet": chloride.NETWORK_CHECKPOINT, "vgg11": chloride.UPNETWORK_CHECKPOINT},
+        "iron2": {"squeezenet": iron2.NETWORK_CHECKPOINT, "vgg11": iron2.UPNETWORK_CHECKPOINT},
+        "iron3": {"squeezenet": iron32d.NETWORK_CHECKPOINT, "vgg11": iron32d.UPNETWORK_CHECKPOINT},
+        "ph": {"squeezenet": ph.NETWORK_CHECKPOINT, "vgg11": ph.UPNETWORK_CHECKPOINT},
+        "phosphate": {"squeezenet": phosphate.NETWORK_CHECKPOINT, "vgg11": phosphate.UPNETWORK_CHECKPOINT},
+        "redox": {"squeezenet": redox.NETWORK_CHECKPOINT, "vgg11": redox.UPNETWORK_CHECKPOINT},
+        "sulfate": {"squeezenet": sulfate.NETWORK_CHECKPOINT, "vgg11": sulfate.UPNETWORK_CHECKPOINT},
+    }
 
-    def __init__(self, analyte: str, backbone: Optional[str] = "squeezenet", return_node: Optional[str] = None, *args, **kwargs):
+    def __init__(self, analyte: str, backbone: Optional[str] = "squeezenet", return_node: Optional[str] = None, frozen_weights: bool = True, *args, **kwargs):
         super().__init__()
         self.analyte = analyte
         self.backbone = backbone
         self.return_node = return_node
+        self.frozen_weights = frozen_weights
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Internal Extractor
+        self.extractor = self.load_from_checkpoint()
+
+        # Detach (or not) from the FX graph (Frozen or not the weights).
+        for param in self.extractor.parameters():
+            param.requires_grad = not self.frozen_weights
 
     def load_from_checkpoint(self, *args, **kwargs):
         if self.backbone == "squeezenet":
-            self.backbone = self.squeezenets[self.analyte]
-            self.checkpoint = self.checkpoints[self.analyte]["squeezenet"]
-            if self.return_node is None:
-                return_node = {'model.backbone.features.12.cat': 'feature'} # key are node(s) and value(s) is the user alias {node: alias}
-            else:
-                return_node = {return_node : 'feature'}
-
+            backbone_cls = self.squeezenets[self.analyte]
+            checkpoint = self.checkpoints[self.analyte]["squeezenet"]
+            return_node = {'model.backbone.features.12.cat': 'feature'} if self.return_node is None else {self.return_node: 'feature'}
         elif self.backbone == "vgg11":
-            self.backbone = self.vgg11s[self.analyte]
-            self.checkpoint = self.checkpoints[self.analyte]["vgg11"]
-            if self.return_node is None:
-                # TODO pegar o nome correto da rede do projeto
-                return_node = {'features.20': 'feature'}     # key are node(s) and value(s) is the user alias {node: alias}
-            else:
-                return_node = {return_node : 'feature'}
-
+            backbone_cls = self.vgg11s[self.analyte]
+            checkpoint = self.checkpoints[self.analyte]["vgg11"]
+            return_node = {'features.20': 'feature'} if self.return_node is None else {self.return_node: 'feature'}
         else:
             raise ValueError("Unsupported Backbone")
 
-        state_dict = torch.load(self.checkpoint, map_location = self._device, weights_only=False)
+        state_dict = torch.load(checkpoint, map_location=self._device, weights_only=False)
         hyper_parameters = state_dict["hyper_parameters"]
         net = hyper_parameters["network_class"](**hyper_parameters)
-        net.load_state_dict(OrderedDict([(key.lstrip("net."), value) for (key, value) in state_dict["state_dict"].items() if key.startswith("net.")]))
-        net.eval()
-        extractor = create_feature_extractor(net, return_node)
+        net.load_state_dict(OrderedDict([(key.removeprefix("net."), value) for (key, value) in state_dict["state_dict"].items() if key.startswith("net.")]))
 
-        return extractor
+        if self.frozen_weights:
+            net.eval()
 
-    def forward(self, x):
+        return create_feature_extractor(net, return_node)
 
+    def forward(self, x: torch.Tensor):
         out = self.extractor(x)
-        x = out['feature']
-        return x
+        return out['feature']
 
 class MLP1(torch.nn.Module):
     """_Classificador feito utilizando uma MLP_
@@ -132,7 +129,7 @@ class MLP1(torch.nn.Module):
         x = self.l2(x)
         x = self.l1(x)
         x = self.output_layer(x)
-        x = torch.nn.functional.softmax(x, dim=1)
+        #x = torch.nn.functional.softmax(x, dim=1)
 
         return x
 
@@ -140,18 +137,20 @@ class SqueezeNetClassifier(torch.nn.Module):
     """_Classificador original da arquitetura SqueezeNet_
         Utilizando o classificador com a mesma arquitetura da Squeeze Net original, uma camada de convolução + avg pooling
     """
-    def __init__(self, num_class: int, device: str = "cuda",  **kwargs):
+    def __init__(self, num_classes: int, in_channels: int = 512, **kwargs):
         super().__init__()
-        self.num_class = num_class
-        # TODO: [David] Alterar o tamanho da entrada (baseado no pmf.shape)
-        final_conv = torch.nn.Conv2d(512, self.num_classes, kernel_size=1)
-        self.layer_classfier = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.5), final_conv, torch.nn.ReLU(inplace=True), torch.nn.AvgPool2d(13)
+        self.num_classes = num_classes
+        self.layer_classifier = torch.nn.Sequential(
+            torch.nn.Dropout(p=0.5),
+            torch.nn.Conv2d(in_channels, self.num_classes, kernel_size=1),
+            torch.nn.ReLU(inplace=True),
+            torch.nn.AdaptiveAvgPool2d((1, 1)),
+            torch.nn.Flatten()
         )
 
     def forward(self, x: torch.Tensor):
-        x = self.layer_classfier(x)
-        x = torch.nn.functional.softmax(x, dim=1)
+        x = self.layer_classifier(x)
+        #x = torch.nn.functional.softmax(x, dim=1)
         return x
 
 # TODO validar
@@ -191,4 +190,3 @@ class DynamicMLP(nn.Module):
         x = self.pool(x)           # (N, C, 1, 1)
         x = torch.flatten(x, 1)   # (N, C)
         return self.model(x)
-
