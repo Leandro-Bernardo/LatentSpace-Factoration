@@ -5,7 +5,7 @@ import os
 
 from wandb.wandb_run import Run
 from pytorch_lightning import Trainer
-from engine.lightning import Dataset, BaseModel
+from engine.lightning import Dataset, BaseLightningModule
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.callbacks.early_stopping import EarlyStopping
@@ -37,7 +37,7 @@ def main():
         metadata = DatasetMetadata.from_yaml(f"{experiment_config.analyte}_metadata.yaml")
         input_dim = metadata.num_channels
         # load model
-        model = BaseModel(
+        model = BaseLightningModule(
                         experiment_configs=experiment_config,
                         num_classes=data_module.num_classes,
                         input_dim=input_dim

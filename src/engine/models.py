@@ -63,8 +63,10 @@ class FeatureExtractor(nn.Module):
         self.extractor = self.load_from_checkpoint()
 
         # Detach (or not) from the FX graph (Frozen or not the weights).
+        # Detach (or not) from the FX graph (Frozen or not the weights).
         for param in self.extractor.parameters():
-            param.requires_grad = not self.frozen_weights
+            if param.is_floating_point():
+                param.requires_grad = not self.frozen_weights
 
     def load_from_checkpoint(self, *args, **kwargs):
         if self.backbone == "squeezenet":

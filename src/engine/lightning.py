@@ -315,9 +315,10 @@ class Dataset(LightningDataModule):
     def test_dataloader(self):
         return DataLoader(self.dataset_test, batch_size=1,  shuffle=False)#, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
 
-class BaseModel(LightningModule):
-    def __init__(self, *,  experiment_configs: ExperimentConfig, num_classes: int, **kwargs: Any):
+class BaseLightningModule(LightningModule):
+    def __init__(self, *,  experiment_configs: ExperimentConfig, num_classes: int, input_dim:int,  **kwargs: Any):
             super().__init__(**kwargs)
+            self.input_dim = input_dim
             self.criterion = experiment_configs.model.get_loss_module()
             self.learning_rate = experiment_configs.model.learning_rate
             self.learning_rate_patience = experiment_configs.model.learning_rate_patience
@@ -338,7 +339,7 @@ class BaseModel(LightningModule):
             if experiment_configs.classifier_model=="squeezenet":
                 self.classifier = classifier_cls(num_classes=num_classes)
             else:
-                self.classifier = classifier_cls(input_dim=experiment_configs.input_dim, num_classes=num_classes)
+                self.classifier = classifier_cls(input_dim=self.input_dim, num_classes=num_classes)
 
             self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
                                                         "acc": Accuracy(task="multiclass", num_classes=num_classes, average="macro"),
@@ -362,13 +363,13 @@ class BaseModel(LightningModule):
 
     def forward(self, x: Any):
         x = self.feature_extractor(x)
-        x = self.classifier(x)
+        x = self.classifier(x["feature"])
         return x
 
     # Defines basics operations for train, validadion and test
     def _any_step(self, batch: Tuple[torch.tensor, torch.tensor], stage: str):
         X, y = batch[0], batch[1]
-        logits  = self(X)    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
+        logits  = self(X.squeeze())    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
         # Compute and log the loss value.
         loss = self.criterion(logits , y)
         self.log(f"Loss/{stage}", loss, prog_bar=True)
