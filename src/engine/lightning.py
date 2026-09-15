@@ -362,14 +362,16 @@ class BaseLightningModule(LightningModule):
         return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
 
     def forward(self, x: Any):
-        x = self.feature_extractor(x)
-        x = self.classifier(x["feature"])
-        return x
+        if len(x.shape) > 3:
+            x = x.squeeze(1)
+        features = self.feature_extractor(x)
+        logits = self.classifier(features)
+        return logits
 
     # Defines basics operations for train, validadion and test
     def _any_step(self, batch: Tuple[torch.tensor, torch.tensor], stage: str):
         X, y = batch[0], batch[1]
-        logits  = self(X.squeeze())    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
+        logits  = self(X)    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
         # Compute and log the loss value.
         loss = self.criterion(logits , y)
         self.log(f"Loss/{stage}", loss, prog_bar=True)
