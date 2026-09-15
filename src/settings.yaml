@@ -1,0 +1,15 @@
+analyte: Null                 # All analytes are available
+samples_dir: Null             # Base dir containing all samples
+feature_extractor: Null       # squeezenet or vgg11
+return_node: Null             # If null, will return the predefined node of each feature extractor
+classifier_model: Null        # dynamicMLP, mlp1 or squeezenet.
+debug_save_pmfs_as_img: False # Saves the processed pmf`s as images for a fast validation of the data.
+fine_tune_cnn: True           # Set to True when fine-tuning the CNN backbone end-to-end (raw inputs required).
+                              # Set to False when training only the classification model on frozen feature maps.
+                              # If True, saves the PMF (raw inputs) to disk instead of extracted feature maps.
+
+model:
+  max_epochs: 0             # Maximum number of Epochs.
+  learning_rate_patience: 0 # Number of Epochs before reducing the learning rate after reaching a plateau (reduce on plateau technique).
+  loss_function: Null       # The cost function used on training. Currently only cross_entropy
+
