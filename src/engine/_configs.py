@@ -57,7 +57,7 @@ class ExperimentConfig(BaseModel):
                     "sulfate", "phosphate", "iron2", "iron3", "ph", "redox"
                 ] = Field(default=None,
                             description="The analyte.")
-    classifier_model: Literal["mlp1", "DynamicMLP", "squeezenet"] = Field(default=None,
+    classifier_model: Literal["mlp1", "dynamicMLP", "squeezenet"] = Field(default=None,
                                                                             description="The classifier architecture used for predicting the device.")
     feature_extractor: Literal["squeezenet", "vgg11"] = Field(default="squeezenet",
                                                                 description="The architecture used for extracting features from input images. The CNN module.")
@@ -124,7 +124,7 @@ class ExperimentConfig(BaseModel):
 
         mapping = {
             "mlp1": {"model": MLP1, "requires_flatten": True},
-            "DynamicMLP": {"model": DynamicMLP, "requires_flatten": True},
+            "dynamicMLP": {"model": DynamicMLP, "requires_flatten": True},
             "squeezenet": {"model": SqueezeNetClassifier, "requires_flatten": False},
         }
         chosen = mapping[self.classifier_model]

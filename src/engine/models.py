@@ -63,7 +63,6 @@ class FeatureExtractor(nn.Module):
         self.extractor = self.load_from_checkpoint()
 
         # Detach (or not) from the FX graph (Frozen or not the weights).
-        # Detach (or not) from the FX graph (Frozen or not the weights).
         for param in self.extractor.parameters():
             if param.is_floating_point():
                 param.requires_grad = not self.frozen_weights
@@ -189,6 +188,6 @@ class DynamicMLP(nn.Module):
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):
-        x = self.pool(x)           # (N, C, 1, 1)
+        x = self.pool(x)          # (N, C, 1, 1)
         x = torch.flatten(x, 1)   # (N, C)
         return self.model(x)

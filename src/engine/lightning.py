@@ -128,7 +128,7 @@ class Preprocessing():
 
         # calculates the ROI based on the reduction level of each analyte
         print("computing the calibrated PMF ROI")
-        input_roi = ((168, 309), (242, 332))#, input_range = processed_samples.compute_calibrated_pmf_roi(reduction_level)
+        input_roi, input_range = processed_samples.compute_calibrated_pmf_roi(reduction_level)
         in_x, out_x, in_y, out_y = input_roi[0][0], input_roi[0][1], input_roi[1][0], input_roi[1][1]
         # extract features with selected backbone
         features = []
@@ -316,9 +316,8 @@ class Dataset(LightningDataModule):
         return DataLoader(self.dataset_test, batch_size=1,  shuffle=False)#, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
 
 class BaseLightningModule(LightningModule):
-    def __init__(self, *,  experiment_configs: ExperimentConfig, num_classes: int, input_dim:int,  **kwargs: Any):
+    def __init__(self, *,  experiment_configs: ExperimentConfig, num_classes: int, input_dim: int, **kwargs: Any):
             super().__init__(**kwargs)
-            self.input_dim = input_dim
             self.criterion = experiment_configs.model.get_loss_module()
             self.learning_rate = experiment_configs.model.learning_rate
             self.learning_rate_patience = experiment_configs.model.learning_rate_patience
@@ -331,15 +330,21 @@ class BaseLightningModule(LightningModule):
                     backbone=experiment_configs.feature_extractor,
                     return_node=experiment_configs.return_node,
                     frozen_weights=False
-                    ).load_from_checkpoint()
+                    )#.load_from_checkpoint()
+                # dummy forward pass to get the input dim
+                with torch.no_grad():
+                    dummy_input = torch.zeros(1, 511, 511)
+                    dummy_features = self.feature_extractor(dummy_input)
+                    self.classifier_input_dim = dummy_features.shape[1] # Adaptative pool used in Dynamic MLP. The shape will be collapsed from (B, C, H, W) to (B, C, 1, 1). So the input dim is the C.
             else:
                 self.feature_extractor = torch.nn.Identity()
+                self.classifier_input_dim = input_dim
 
             classifier_cls, _ = experiment_configs.get_classifier_architecture()
             if experiment_configs.classifier_model=="squeezenet":
                 self.classifier = classifier_cls(num_classes=num_classes)
             else:
-                self.classifier = classifier_cls(input_dim=self.input_dim, num_classes=num_classes)
+                self.classifier = classifier_cls(input_dim=self.classifier_input_dim, num_classes=num_classes)
 
             self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
                                                         "acc": Accuracy(task="multiclass", num_classes=num_classes, average="macro"),
@@ -362,14 +367,16 @@ class BaseLightningModule(LightningModule):
         return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
 
     def forward(self, x: Any):
-        x = self.feature_extractor(x)
-        x = self.classifier(x["feature"])
-        return x
+        if len(x.shape) > 3:
+            x = x.squeeze(1)
+        features = self.feature_extractor(x)
+        logits = self.classifier(features)
+        return logits
 
     # Defines basics operations for train, validadion and test
     def _any_step(self, batch: Tuple[torch.tensor, torch.tensor], stage: str):
         X, y = batch[0], batch[1]
-        logits  = self(X.squeeze())    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
+        logits  = self(X)    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
         # Compute and log the loss value.
         loss = self.criterion(logits , y)
         self.log(f"Loss/{stage}", loss, prog_bar=True)
