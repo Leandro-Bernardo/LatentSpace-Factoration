@@ -53,7 +53,7 @@ class TrainingSetup(BaseModel):
 
 class ExperimentConfig(BaseModel):
     analyte: Literal[
-                    "alkalinity", "bisulfite", "bisulfite2d", "chloride",
+                    "alkalinity", "bisulfite", "chloride",
                     "sulfate", "phosphate", "iron2", "iron3", "ph", "redox"
                 ] = Field(default=None,
                             description="The analyte.")

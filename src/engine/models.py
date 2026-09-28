@@ -20,7 +20,7 @@ sys.modules['chemical_analysis'] = ca
 class FeatureExtractor(nn.Module):
     squeezenets = {
         "alkalinity": alkalinity.AlkalinityNetworkSqueezeNetStyle,
-        "bisulfite2d": bisulfite2d.Bisulfite2DNetworkSqueezeNetStyle,
+        "bisulfite": bisulfite2d.Bisulfite2DNetworkSqueezeNetStyle,
         "chloride": chloride.ChlorideNetworkSqueezeNetStyle,
         "iron2": iron2.Iron2NetworkSqueezeNetStyle,
         "iron3": iron32d.Iron3NetworkSqueezeNetStyle,
@@ -31,7 +31,7 @@ class FeatureExtractor(nn.Module):
     }
     vgg11s = {
         "alkalinity": alkalinity.AlkalinityNetworkVgg11Style,
-        "bisulfite2d": bisulfite2d.Bisulfite2DNetworkVgg11Style,
+        "bisulfite": bisulfite2d.Bisulfite2DNetworkVgg11Style,
         "chloride": chloride.ChlorideNetworkVgg11Style,
         "iron2": iron2.Iron2NetworkVgg11Style,
         "iron3": iron32d.Iron3NetworkVgg11Style,
@@ -42,7 +42,7 @@ class FeatureExtractor(nn.Module):
     }
     checkpoints = {
         "alkalinity": {"squeezenet": alkalinity.NETWORK_CHECKPOINT, "vgg11": alkalinity.UPNETWORK_CHECKPOINT},
-        "bisulfite2d": {"squeezenet": bisulfite2d.NETWORK_CHECKPOINT, "vgg11": bisulfite2d.UPNETWORK_CHECKPOINT},
+        "bisulfite": {"squeezenet": bisulfite2d.NETWORK_CHECKPOINT, "vgg11": bisulfite2d.UPNETWORK_CHECKPOINT},
         "chloride": {"squeezenet": chloride.NETWORK_CHECKPOINT, "vgg11": chloride.UPNETWORK_CHECKPOINT},
         "iron2": {"squeezenet": iron2.NETWORK_CHECKPOINT, "vgg11": iron2.UPNETWORK_CHECKPOINT},
         "iron3": {"squeezenet": iron32d.NETWORK_CHECKPOINT, "vgg11": iron32d.UPNETWORK_CHECKPOINT},
