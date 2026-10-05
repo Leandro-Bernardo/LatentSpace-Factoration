@@ -14,9 +14,7 @@ import numpy as np
 import matplotlib
 matplotlib.use("Agg")  # renders plots only in memory
 import matplotlib.pyplot as plt
-#import matplotlib.ticker as ticker
 import wandb
-#import multiprocessing
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 from tqdm import tqdm
 from ._configs import *
@@ -126,11 +124,11 @@ class Preprocessing():
             with open(os.path.join(os.path.dirname(__file__), "..", "devices.yaml"), "w", encoding="utf-8") as f:
                 yaml.dump(self.devices, f, sort_keys=False, allow_unicode=True)
 
-        # calculates the ROI based on the reduction level of each analyte
+        # Calculates the ROI based on the reduction level of each analyte.
         print("computing the calibrated PMF ROI")
-        input_roi = ((168, 309), (242, 332))#, input_range = processed_samples.compute_calibrated_pmf_roi(reduction_level)
+        input_roi, input_range = processed_samples.compute_calibrated_pmf_roi(reduction_level)
         in_x, out_x, in_y, out_y = input_roi[0][0], input_roi[0][1], input_roi[1][0], input_roi[1][1]
-        # extract features with selected backbone
+        # Extract features with selected backbone.
         features = []
         labels = []
         shape = None
@@ -141,7 +139,7 @@ class Preprocessing():
         else:
             self.feature_extractor = None
         for processed_sample in tqdm(processed_samples, desc = 'extracting features'):
-            # process the input X (pmf)
+            # Process the input X (pmf).
             original_pmf = processed_sample.calibrated_pmf
             roi_pmf = original_pmf[in_x:out_x, in_y:out_y]
             pmf_tensor = torch.tensor(roi_pmf)
@@ -159,11 +157,11 @@ class Preprocessing():
                 metadata_datatype = "preprocessed_pmf_feature_maps"
             features.append(processed_item)
             data_shape = processed_item.shape
-            # process the output y (cellphone model)
+            # Process the output y (cellphone model).
             sample_device = processed_sample.sample.get("device")["model"].lower()
             sample_device_idx = self.devices[f"{self.analyte}"].get(sample_device)
             labels.append(sample_device_idx)
-            # assures samples have same shape
+            # Assures samples have same shape.
             if shape != None:
                 assert shape == data_shape
             else:
@@ -173,7 +171,7 @@ class Preprocessing():
                 pmfs_as_img["roi_pmf"].append(roi_pmf)
                 pmfs_as_img["resized_roi_pmf"].append(pmf_tensor_resized.squeeze())
 
-        # saves the processed data as memmaps (https://github.com/numpy/numpy/blob/main/numpy/_core/memmap.py#L23-L362)
+        # Saves the processed data as memmaps (https://github.com/numpy/numpy/blob/main/numpy/_core/memmap.py#L23-L362).
         save_path = os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset")
         os.makedirs(save_path, exist_ok=True)
         x_save_path = os.path.join(save_path, f"{self.analyte}_processed_samples.dat")
@@ -181,7 +179,7 @@ class Preprocessing():
         N, C, H, W = len(processed_samples), data_shape[-3], data_shape[-2], data_shape[-1]
         x_memmap = np.memmap(x_save_path, dtype = np.float32, mode = 'w+', shape = (N, C, H, W))
         y_memmap = np.memmap(y_save_path, dtype = np.int64, mode = 'w+', shape = (N))
-        # write data on memmap obj
+        # Write data on memmap obj.
         for i in tqdm(range(N), desc= 'saving data'):
             x_memmap[i] = features[i]
             y_memmap[i] = labels[i]
@@ -189,7 +187,7 @@ class Preprocessing():
         x_memmap.flush()
         y_memmap.flush()
 
-        # write data metadata (num classes, num samples, num feature maps (channels), height, width)
+        # Write data metadata (num classes, num samples, num feature maps (channels), height, width).
         with open(os.path.join(save_path, f"{self.analyte}_metadata.yaml"), "w", encoding="utf-8") as f:
             data = {
                     "num_classes": num_classes,
@@ -202,7 +200,7 @@ class Preprocessing():
 
             yaml.dump(data, f, sort_keys=False, allow_unicode=True)
 
-        # saves pmfs as image for debuging
+        # Saves pmfs as image for debuging.
         if debug_save_pmfs_as_img:
             assert (len(pmfs_as_img["original_pmf"]) == len(pmfs_as_img["roi_pmf"])) & (len(pmfs_as_img["original_pmf"]) == len(pmfs_as_img["resized_roi_pmf"])) & (len(pmfs_as_img["roi_pmf"]) == len(pmfs_as_img["resized_roi_pmf"]))
 
@@ -240,12 +238,11 @@ class Dataset(LightningDataModule):
 
     def prepare_data(self):
         try:
-            load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
+            load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset")
             with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
                 metadata = yaml.load(f, Loader=yaml.FullLoader)
             self.num_classes, N, C, H, W = metadata["num_classes"], metadata["num_samples"], metadata["num_channels"], metadata["height"], metadata["width"]
             X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
-            #y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, self.num_classes))
             y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.int64, mode='r', shape=(N))
         except:
             import shutil
@@ -256,7 +253,7 @@ class Dataset(LightningDataModule):
             return_node = self.experiment_config.return_node
             save_raw_pmfs = self.experiment_config.fine_tune_cnn
             save_pmf_as_img = self.experiment_config.preprocessing.debug_save_pmfs_as_img
-            # empty cache dir from previous sweep
+            # Empty cache dir from previous sweep.
             try:
                 if os.path.exists(cache_dir):
                     shutil.rmtree(cache_dir)
@@ -278,24 +275,22 @@ class Dataset(LightningDataModule):
                                         )
             preprocessing.prepare_samples_dataset()
 
-            load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path) # TODO carregar untyped storage data aqui
+            load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path)
             with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
                 metadata = yaml.load(f, Loader=yaml.FullLoader)
             self.num_classes, N, C, H, W = metadata["num_classes"], metadata["num_samples"], metadata["num_channels"], metadata["height"], metadata["width"]
             X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
-            #y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.float32, mode='r', shape=(N, self.num_classes))
             y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.int64, mode='r', shape=(N))
 
 
         sample_extracted_features = torch.from_numpy(X)
-        #true_class_value = torch.tensor(y)
         true_class_value = torch.tensor(y, dtype=torch.long)
         self.dataset = TensorDataset(sample_extracted_features, true_class_value)
 
 
     def setup(self, stage:str):
         len_dataset = len(self.dataset)
-        # ~60% ~20% ~20%
+        # ~60% ~20% ~20%.
         n_train = ceil(0.6*len_dataset)
         n_val = ceil(0.2*len_dataset)
         n_test = len_dataset - n_train - n_val
@@ -330,8 +325,8 @@ class BaseLightningModule(LightningModule):
                     backbone=experiment_configs.feature_extractor,
                     return_node=experiment_configs.return_node,
                     frozen_weights=False
-                    )#.load_from_checkpoint()
-                # dummy forward pass to get the input dim
+                    )
+                # Dummy forward pass to get the input dim.
                 with torch.no_grad():
                     dummy_input = torch.zeros(1, 511, 511)
                     dummy_features = self.feature_extractor(dummy_input)
@@ -367,32 +362,33 @@ class BaseLightningModule(LightningModule):
         return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
 
     def forward(self, x: Any):
+        # TODO adicionar uma verificacao mais sofisticada para os shapes
         if len(x.shape) > 3:
             x = x.squeeze(1)
         features = self.feature_extractor(x)
         logits = self.classifier(features)
         return logits
 
-    # Defines basics operations for train, validadion and test
-    def _any_step(self, batch: Tuple[torch.tensor, torch.tensor], stage: str):
+    # Defines basics operations for train, validadion and test.
+    def _any_step(self, batch: Tuple[torch.Tensor, torch.Tensor], stage: str):
         X, y = batch[0], batch[1]
-        logits  = self(X)    # BaseModel obj is the network itself (https://towardsdatascience.com/from-pytorch-to-pytorch-lightning-a-gentle-introduction-b371b7caaf09)
+        logits  = self(X)
         # Compute and log the loss value.
         loss = self.criterion(logits , y)
-        self.log(f"Loss/{stage}", loss, prog_bar=True)
+        self.log(f"Loss/{stage}", loss, prog_bar=True, batch_size=X.size(0))
         # Compute and log step metrics.
         predicted_value = torch.argmax(logits, dim=1)
-        metrics: MetricCollection = self.metrics[stage]  # type: ignore
-        self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(logits, y).items()})
+        metrics: MetricCollection = self.metrics[stage]
+        self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(logits, y).items()}, batch_size=X.size(0))
         return loss
 
-    def training_step(self, batch: List[torch.tensor]):
+    def training_step(self, batch: List[torch.Tensor]):
         return self._any_step(batch, "Train")
 
-    def validation_step(self, batch: List[torch.tensor]):
+    def validation_step(self, batch: List[torch.Tensor]):
         return self._any_step(batch, "Val")
 
-    def test_step(self, batch: List[torch.tensor]):
+    def test_step(self, batch: List[torch.Tensor]):
         X, y = batch[0], batch[1]
         logits = self(X)
         preds = torch.argmax(logits, dim=1)
@@ -404,8 +400,8 @@ class BaseLightningModule(LightningModule):
         self._inference_time["targets"].extend(y.detach().cpu().tolist())
 
     def _any_epoch_end(self, stage: str):
-        # calculates metrics
-        metrics: MetricCollection = self.metrics[stage]  # type: ignore
+        # Calculates metrics.
+        metrics: MetricCollection = self.metrics[stage]
         self.log_dict({f'{metric_name}/{stage}/Epoch': value for metric_name, value in metrics.compute().items()}, on_step=False, on_epoch=True) # logs metrics on epoch end
         metrics.reset()
 
