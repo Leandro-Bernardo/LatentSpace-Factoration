@@ -20,26 +20,27 @@ from tqdm import tqdm
 from ._configs import *
 
 try:
-    with open(os.path.join(os.path.dirname(__file__), "..", "devices.yaml"), "r") as f:
-        devices = yaml.load(f, Loader=yaml.FullLoader)
+    with open(os.path.join(os.path.dirname(__file__), "..", "cellphone_devices.yaml"), "r") as f:
+        cellphone_devices = yaml.load(f, Loader=yaml.FullLoader)
 except:
-    devices = {} # Lazy Initialization
+    cellphone_devices = {} # Lazy Initialization
 
 
 class Preprocessing():
-    def __init__(self, analyte: str, samples_dir: str, cache_dir: str, devices: Dict[str, Dict[str, int]], use_torchvision_model: bool, use_torchvision_model_pretrained: bool, feature_extractor_backbone: str, return_node: Optional[str] = None, debug_save_pmfs_as_img: Optional[bool] = False, save_raw_pmfs: Optional[bool] = False):
+    def __init__(self, analyte: str, samples_dir: str, cache_dir: str, cellphone_devices: Dict[str, Dict[str, int]], use_torchvision_model: bool, torchvision_model_pretrained: bool, feature_extractor_backbone: str, return_node: Optional[str] = None, debug_save_pmfs_as_img: Optional[bool] = False, save_raw_pmfs: Optional[bool] = False, processing_device: Optional[str] = "cpu"):
         self.analyte = analyte
         self.samples_dir = samples_dir
         self.cache_dir = cache_dir
-        self.devices = devices
+        self.cellphone_devices = cellphone_devices
         self.save_path = os.path.join(os.path.dirname(__file__), "..")
         self.debug_save_pmfs_as_img = debug_save_pmfs_as_img
         self.save_raw_pmfs = save_raw_pmfs  # If fine-tuning / training a cnn model, raw inputs are required. Therefore, the pmfs are saved rather than the feature maps.
+        self.processing_device = processing_device
         if not self.save_raw_pmfs:
             self.feature_extractor = FeatureExtractor(
                                                       analyte=self.analyte,
                                                       use_torchvision_model=use_torchvision_model,
-                                                      use_torchvision_model_pretrained=use_torchvision_model_pretrained,
+                                                      torchvision_model_pretrained=torchvision_model_pretrained,
                                                       feature_extractor_backbone=feature_extractor_backbone,
                                                       return_node=return_node,
                                                       frozen_weights=True
@@ -117,18 +118,18 @@ class Preprocessing():
         processed_sample = processed_samples
         current_samples_devices = set([i.sample.get("device")["model"].lower() for i in processed_samples])
 
-        if self.analyte not in self.devices.keys():
-            self.devices[f"{self.analyte}"] = {model:i for i, model in enumerate(current_samples_devices, start=0)}
-            with open(os.path.join(os.path.dirname(__file__), "..", "devices.yaml"), "w", encoding="utf-8") as f:
-                yaml.dump(self.devices, f, sort_keys=False, allow_unicode=True)
+        if self.analyte not in self.cellphone_devices.keys():
+            self.cellphone_devices[f"{self.analyte}"] = {model:i for i, model in enumerate(current_samples_devices, start=0)}
+            with open(os.path.join(os.path.dirname(__file__), "..", "cellphone_devices.yaml"), "w", encoding="utf-8") as f:
+                yaml.dump(self.cellphone_devices, f, sort_keys=False, allow_unicode=True)
 
         #TODO verificar caso que o celular nao existe mais no dataset (excluir e resetar a contagem / resetar o analito sempre que for usado (no preprocessamento))
         for model in current_samples_devices:
-            if model not in self.devices.get(self.analyte).keys():
-                idx = max(self.devices.get(self.analyte).values()) + 1
-                self.devices.get(self.analyte)[model] = idx
-            with open(os.path.join(os.path.dirname(__file__), "..", "devices.yaml"), "w", encoding="utf-8") as f:
-                yaml.dump(self.devices, f, sort_keys=False, allow_unicode=True)
+            if model not in self.cellphone_devices.get(self.analyte).keys():
+                idx = max(self.cellphone_devices.get(self.analyte).values()) + 1
+                self.cellphone_devices.get(self.analyte)[model] = idx
+            with open(os.path.join(os.path.dirname(__file__), "..", "cellphone_devices.yaml"), "w", encoding="utf-8") as f:
+                yaml.dump(self.cellphone_devices, f, sort_keys=False, allow_unicode=True)
 
         # Calculates the ROI based on the reduction level of each analyte.
         print("computing the calibrated PMF ROI")
@@ -150,7 +151,7 @@ class Preprocessing():
             pmf_tensor = torch.tensor(roi_pmf)
             #TODO adaptar o resize do chemical analysis
             #TODO definir input size como variavel a ser informada, dependendo do modelo neural
-            pmf_tensor_resized = torch.nn.functional.interpolate(pmf_tensor.unsqueeze(0).unsqueeze(0), size=(511, 511), mode='bilinear', align_corners=False)
+            pmf_tensor_resized = torch.nn.functional.interpolate(pmf_tensor.unsqueeze(0).unsqueeze(0), size=(511, 511), mode='bilinear', align_corners=False).to(self.processing_device)
             if self.save_raw_pmfs:
                 processed_item = pmf_tensor_resized.squeeze(0).cpu().numpy()
                 metadata_datatype = "preprocessed_pmf_raw_data"
@@ -164,7 +165,7 @@ class Preprocessing():
             data_shape = processed_item.shape
             # Process the output y (cellphone model).
             sample_device = processed_sample.sample.get("device")["model"].lower()
-            sample_device_idx = self.devices[f"{self.analyte}"].get(sample_device)
+            sample_device_idx = self.cellphone_devices[f"{self.analyte}"].get(sample_device)
             labels.append(sample_device_idx)
             # Assures samples have same shape.
             if shape != None:
@@ -236,10 +237,11 @@ class Preprocessing():
                 plt.close(fig)
 
 class Dataset(LightningDataModule):
-    def __init__(self, experiment_config: ExperimentConfig, **kwargs ):
+    def __init__(self, experiment_configs: ExperimentConfig, **kwargs ):
         super().__init__()
-        self.analyte = experiment_config.analyte
-        self.experiment_config = experiment_config
+        self.analyte = experiment_configs.analyte
+        self.experiment_configs = experiment_configs
+        self._processing_device = experiment_configs.processing_device
 
     def prepare_data(self):
         try:
@@ -251,13 +253,15 @@ class Dataset(LightningDataModule):
             y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.int64, mode='r', shape=(N))
         except:
             import shutil
-            analyte = self.experiment_config.analyte
-            samples_dir = self.experiment_config.preprocessing.samples_dir
-            cache_dir = self.experiment_config.preprocessing.cache_dir
-            feature_extractor = self.experiment_config.feature_extractor
-            return_node = self.experiment_config.return_node
-            save_raw_pmfs = self.experiment_config.fine_tune_or_train_cnn
-            save_pmf_as_img = self.experiment_config.preprocessing.debug_save_pmfs_as_img
+            analyte = self.experiment_configs.analyte
+            samples_dir = self.experiment_configs.preprocessing.samples_dir
+            cache_dir = self.experiment_configs.preprocessing.cache_dir
+            use_torchvision_model = self.experiment_configs.use_torchvision_model
+            torchvision_model_pretrained = self.experiment_configs.torchvision_model_pretrained
+            feature_extractor = self.experiment_configs.feature_extractor
+            return_node = self.experiment_configs.return_node
+            save_raw_pmfs = self.experiment_configs.fine_tune_or_train_cnn
+            save_pmf_as_img = self.experiment_configs.preprocessing.debug_save_pmfs_as_img
             # Empty cache dir from previous sweep.
             try:
                 if os.path.exists(cache_dir):
@@ -272,11 +276,14 @@ class Dataset(LightningDataModule):
                                           analyte=analyte,
                                           samples_dir=samples_dir,
                                           cache_dir=cache_dir,
-                                          devices=devices,
+                                          cellphone_devices=cellphone_devices,
+                                          use_torchvision_model=use_torchvision_model,
+                                          torchvision_model_pretrained=torchvision_model_pretrained,
                                           feature_extractor_backbone=feature_extractor,
                                           return_node=return_node,
                                           debug_save_pmfs_as_img=save_pmf_as_img,
-                                          save_raw_pmfs=save_raw_pmfs
+                                          save_raw_pmfs=save_raw_pmfs,
+                                          processing_device=self._processing_device
                                         )
             preprocessing.prepare_samples_dataset()
 
@@ -288,8 +295,8 @@ class Dataset(LightningDataModule):
             y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.int64, mode='r', shape=(N))
 
 
-        sample_extracted_features = torch.from_numpy(X)
-        true_class_value = torch.tensor(y, dtype=torch.long)
+        sample_extracted_features = torch.from_numpy(X).to(self._processing_device)
+        true_class_value = torch.tensor(y, dtype=torch.long).to(self._processing_device)
         self.dataset = TensorDataset(sample_extracted_features, true_class_value)
 
 
@@ -307,10 +314,10 @@ class Dataset(LightningDataModule):
         self.dataset_test = test_set
 
     def train_dataloader(self):
-        return DataLoader(self.dataset_train, batch_size = self.experiment_config.batch_size)#, shuffle=True, num_workers= 2, pin_memory=True, drop_last=True, persistent_workers=True)
+        return DataLoader(self.dataset_train, batch_size = self.experiment_configs.batch_size)#, shuffle=True, num_workers= 2, pin_memory=True, drop_last=True, persistent_workers=True)
 
     def val_dataloader(self):
-        return DataLoader(self.dataset_val, batch_size = self.experiment_config.batch_size)#, shuffle=False, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
+        return DataLoader(self.dataset_val, batch_size = self.experiment_configs.batch_size)#, shuffle=False, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
 
     def test_dataloader(self):
         return DataLoader(self.dataset_test, batch_size=1,  shuffle=False)#, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
@@ -323,21 +330,22 @@ class BaseLightningModule(LightningModule):
             self.learning_rate_patience = experiment_configs.model.learning_rate_patience
             self.early_stopping_patience = experiment_configs.model.early_stopping_patience
             self.fine_tune_or_train_cnn = experiment_configs.fine_tune_or_train_cnn
-            self._device = "cuda" if torch.cuda.is_available() else "cpu"
+            self._processing_device = experiment_configs.processing_device
 
             if self.fine_tune_or_train_cnn:
                 self.feature_extractor = FeatureExtractor(
                                                         analyte=experiment_configs.analyte,
                                                         use_torchvision_model=experiment_configs.use_torchvision_model,
-                                                        use_torchvision_model_pretrained=experiment_configs.use_torchvision_model_pretrained,
+                                                        torchvision_model_pretrained=experiment_configs.torchvision_model_pretrained,
                                                         feature_extractor_backbone=experiment_configs.feature_extractor,
                                                         freeze_cnn_weights=False,
                                                         return_node=experiment_configs.return_node,
+                                                        device=self._processing_device
                                                         )
                 # Dummy forward pass to get the input dim.
                 with torch.no_grad():
-                    dummy_input = torch.zeros(1, 511, 511)
-                    dummy_features = self.feature_extractor(dummy_input).to(self._device)
+                    dummy_input = torch.zeros(1, 511, 511).to(self._processing_device)
+                    dummy_features = self.feature_extractor(dummy_input)
                     self.classifier_input_dim = dummy_features.shape[1] # Adaptative pool used in Dynamic MLP. The shape will be collapsed from (B, C, H, W) to (B, C, 1, 1). So the input dim is the C.
             else:
                 self.feature_extractor = torch.nn.Identity()
@@ -394,7 +402,7 @@ class BaseLightningModule(LightningModule):
 
     def on_train_epoch_start(self):
         """Prevents the extractor from reactivating BatchNorm and Dropout if the weights are frozen."""
-        if self.freeze_cnn_weights:
+        if not self.fine_tune_or_train_cnn:
             self.feature_extractor.eval()
 
     def training_step(self, batch: List[torch.Tensor]):

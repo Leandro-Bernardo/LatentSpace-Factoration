@@ -3,17 +3,18 @@ from pathlib import Path
 from typing import Literal, Optional, Dict, Tuple, Any
 import yaml
 import torch.nn as nn
+from  torch.cuda import is_available
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
-
+DEVICE = "cuda" if is_available() else "cpu"
 
 class PreprocessingConfig(BaseModel):
     samples_dir: str = Field(description="Dataset dir.")
     cache_dir: Optional[str] = Field(description="Cache dir")
     debug_save_pmfs_as_img: bool = Field(default=False,
                                         description= "Saves the processed pmf`s as images for a fast validation of the data.")
-    fine_tune_cnn: bool = Field(default=False,
+    fine_tune_or_train_cnn: bool = Field(default=False,
                                         description= """Set to True when fine-tuning the CNN backbone end-to-end (raw inputs required).
                                                         Set to False when training only the classification model on frozen feature maps.
                                                         If True, saves the PMF (raw inputs) to disk instead of extracted feature maps.""")
@@ -57,14 +58,28 @@ class ExperimentConfig(BaseModel):
                     "sulfate", "phosphate", "iron2", "iron3", "ph", "redox"
                 ] = Field(default=None,
                             description="The analyte.")
+    use_torchvision_model: bool = Field(default=None,
+                                                    description="Use a base model from torchvision. If false, will use a MABID pretrained model.")
+    torchvision_model_pretrained: bool = Field(default=None,
+                                                            description="Use the weights from the original model or train from scratch.")
     classifier_model: Literal["mlp1", "dynamicMLP", "squeezenet"] = Field(default=None,
                                                                             description="The classifier architecture used for predicting the device.")
-    feature_extractor: Literal["squeezenet", "vgg11"] = Field(default="squeezenet",
+    feature_extractor: Literal["squeezenet",
+                               "vgg11",
+                               "vgg11_bn",
+                               "vgg16",
+                               "vgg16_bn",
+                               "vgg19",
+                               "resnet18",
+                               "resnet50"] = Field(default="squeezenet",
                                                                 description="The architecture used for extracting features from input images. The CNN module.")
-    fine_tune_cnn: bool = Field(default=False,
+    fine_tune_or_train_cnn: bool = Field(default=False,
                                     description= "Indicates if the CNN module used for extract features maps will be fine-tuned or not")
     return_node: Optional[str] = Field(default=None,
                                         description="The node from the CNN model used for colecting the feature maps. Set to none to use the last CNN block.")
+
+    processing_device: Literal["cpu", "cuda"] = Field(default="cpu",
+                                                    description= "The processing device used for training a model (cuda or cpu)")
 
     # Sub-configs
     preprocessing: PreprocessingConfig
@@ -94,16 +109,16 @@ class ExperimentConfig(BaseModel):
                 "use_torchvision_model": raw_settings.get("feature_extraction").get("use_torchvision_model"),
                 "torchvision_model_pretrained": raw_settings.get("feature_extraction").get("torchvision_model_pretrained"),
                 "feature_extractor": raw_settings.get("feature_extraction").get("feature_extractor", "squeezenet"),
+                "fine_tune_or_train_cnn": raw_settings.get("feature_extraction").get("fine_tune_or_train_cnn", False),
                 "return_node": raw_settings.get("feature_extraction").get("return_node"),
                 "classifier_model": raw_settings.get("classifier_model"),
-                "fine_tune_or_train_cnn": raw_settings.get("fine_tune_or_train_cnn", False),
                 "preprocessing": {
                     "samples_dir": raw_settings.get("samples_dir"),
                     "cache_dir": str(cache_dir),
                     "debug_save_pmfs_as_img": raw_settings.get("save_pmf_as_img", False),
-                    "fine_tune_cnn": raw_settings.get("fine_tune_cnn", False),
                                 },
                 "model": raw_settings.get("model", {}),
+                "processing_device": DEVICE
                 }
 
         return cls.model_validate(merged)

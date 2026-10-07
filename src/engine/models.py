@@ -28,7 +28,7 @@ class _ModelRegistry:
     }
     _MABIDS_CHECKPOINTS = {
             "alkalinity": {"squeezenet": alkalinity.NETWORK_CHECKPOINT, "vgg11": alkalinity.UPNETWORK_CHECKPOINT},
-            "bisulfite2d": {"squeezenet": bisulfite2d.NETWORK_CHECKPOINT, "vgg11": bisulfite2d.UPNETWORK_CHECKPOINT},
+            "bisulfite": {"squeezenet": bisulfite2d.NETWORK_CHECKPOINT, "vgg11": bisulfite2d.UPNETWORK_CHECKPOINT},
             "chloride": {"squeezenet": chloride.NETWORK_CHECKPOINT, "vgg11": chloride.UPNETWORK_CHECKPOINT},
             "iron2": {"squeezenet": iron2.NETWORK_CHECKPOINT, "vgg11": iron2.UPNETWORK_CHECKPOINT},
             "iron3": {"squeezenet": iron32d.NETWORK_CHECKPOINT, "vgg11": iron32d.UPNETWORK_CHECKPOINT},
@@ -100,20 +100,20 @@ class _ModelRegistry:
 
 class FeatureExtractor(nn.Module):
 
-    def __init__(self, analyte: str, use_torchvision_model: bool, use_torchvision_model_pretrained: bool, feature_extractor_backbone: str, freeze_cnn_weights: bool,  return_node: Optional[str] = None, *args, **kwargs):
+    def __init__(self, analyte: str, use_torchvision_model: bool, torchvision_model_pretrained: bool, feature_extractor_backbone: str, freeze_cnn_weights: bool,  return_node: Optional[str] = None, device: Optional[str] = "cpu", *args, **kwargs):
         super().__init__()
         self.analyte = analyte
         self.use_torchvision_model = use_torchvision_model
-        self.use_torchvision_model_pretrained = use_torchvision_model_pretrained
+        self.torchvision_model_pretrained = torchvision_model_pretrained
         self.feature_extractor_backbone = feature_extractor_backbone
         self.freeze_cnn_weights = freeze_cnn_weights
         self.return_node = return_node
-        self._device = "cuda" if torch.cuda.is_available() else "cpu"
+        self._device = device
 
         # Internal Extractor
         if self.use_torchvision_model:
             model_name = "squeezenet1_1" if self.feature_extractor_backbone == "squeezenet" else feature_extractor_backbone
-            base_net, return_node_dict = _ModelRegistry.build_from_torchvision(backbone_name=model_name, pretrained=self.use_torchvision_model_pretrained, return_node=self.return_node)
+            base_net, return_node_dict = _ModelRegistry.build_from_torchvision(backbone_name=model_name, pretrained=self.torchvision_model_pretrained, return_node=self.return_node)
         else:
             base_net, return_node_dict = _ModelRegistry.build_from_mabid_checkpoint(analyte=self.analyte, backbone_name=self.feature_extractor_backbone, return_node=self.return_node)
 
