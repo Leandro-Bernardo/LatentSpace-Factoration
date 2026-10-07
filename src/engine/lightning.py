@@ -35,15 +35,16 @@ class Preprocessing():
         self.save_path = os.path.join(os.path.dirname(__file__), "..")
         self.debug_save_pmfs_as_img = debug_save_pmfs_as_img
         self.save_raw_pmfs = save_raw_pmfs  # If fine-tuning / training a cnn model, raw inputs are required. Therefore, the pmfs are saved rather than the feature maps.
-        self.processing_device = processing_device
+        self._processing_device = processing_device
         if not self.save_raw_pmfs:
             self.feature_extractor = FeatureExtractor(
                                                       analyte=self.analyte,
                                                       use_torchvision_model=use_torchvision_model,
                                                       torchvision_model_pretrained=torchvision_model_pretrained,
                                                       feature_extractor_backbone=feature_extractor_backbone,
+                                                      freeze_cnn_weights=True,
                                                       return_node=return_node,
-                                                      frozen_weights=True
+                                                      device=self._processing_device
                                                     )
         else:
             self.feature_extractor = None
@@ -151,7 +152,7 @@ class Preprocessing():
             pmf_tensor = torch.tensor(roi_pmf)
             #TODO adaptar o resize do chemical analysis
             #TODO definir input size como variavel a ser informada, dependendo do modelo neural
-            pmf_tensor_resized = torch.nn.functional.interpolate(pmf_tensor.unsqueeze(0).unsqueeze(0), size=(511, 511), mode='bilinear', align_corners=False).to(self.processing_device)
+            pmf_tensor_resized = torch.nn.functional.interpolate(pmf_tensor.unsqueeze(0).unsqueeze(0), size=(511, 511), mode='bilinear', align_corners=False).to(self._processing_device)
             if self.save_raw_pmfs:
                 processed_item = pmf_tensor_resized.squeeze(0).cpu().numpy()
                 metadata_datatype = "preprocessed_pmf_raw_data"
