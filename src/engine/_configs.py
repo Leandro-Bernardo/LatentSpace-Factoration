@@ -91,10 +91,12 @@ class ExperimentConfig(BaseModel):
 
         merged = {
                 "analyte": analyte,
-                "feature_extractor": raw_settings.get("feature_extractor", "squeezenet"),
-                "return_node": raw_settings.get("return_node"),
+                "use_torchvision_model": raw_settings.get("feature_extraction").get("use_torchvision_model"),
+                "torchvision_model_pretrained": raw_settings.get("feature_extraction").get("torchvision_model_pretrained"),
+                "feature_extractor": raw_settings.get("feature_extraction").get("feature_extractor", "squeezenet"),
+                "return_node": raw_settings.get("feature_extraction").get("return_node"),
                 "classifier_model": raw_settings.get("classifier_model"),
-                "fine_tune_cnn": raw_settings.get("fine_tune_cnn", False),
+                "fine_tune_or_train_cnn": raw_settings.get("fine_tune_or_train_cnn", False),
                 "preprocessing": {
                     "samples_dir": raw_settings.get("samples_dir"),
                     "cache_dir": str(cache_dir),

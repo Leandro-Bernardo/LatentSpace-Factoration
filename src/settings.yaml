@@ -1,12 +1,18 @@
-analyte: Null                 # All analytes are available
-samples_dir: Null             # Base dir containing all samples
-feature_extractor: Null       # squeezenet or vgg11
-return_node: Null             # If null, will return the predefined node of each feature extractor
+analyte: Null      # All analytes are available
+samples_dir: Null  # Base dir containing all samples
+
+feature_extraction:
+  use_torchvision_model: Null        # Use a base model from torchvision. If false, will use a MABID pretrained model.
+  torchvision_model_pretrained: Null # Use the weights from the original model or train from scratch.
+  feature_extractor: Null            # When using torchvision model, accepts any model. When using MABID model, only squeezenet or vgg11.
+  return_node: Null                  # Optional. If null, will return the predefined node of each feature extractor.
+  fine_tune_or_train_cnn: Null       # Set to True when fine-tuning / training the CNN backbone end-to-end (raw inputs required).
+                                     # Set to False when training only the classification model on frozen feature maps.
+                                     # If True, saves the PMF (raw inputs) to disk instead of extracted feature maps.
+
 classifier_model: Null        # dynamicMLP, mlp1 or squeezenet.
+
 debug_save_pmfs_as_img: False # Saves the processed pmf`s as images for a fast validation of the data.
-fine_tune_cnn: True           # Set to True when fine-tuning the CNN backbone end-to-end (raw inputs required).
-                              # Set to False when training only the classification model on frozen feature maps.
-                              # If True, saves the PMF (raw inputs) to disk instead of extracted feature maps.
 
 model:
   max_epochs: 0             # Maximum number of Epochs.

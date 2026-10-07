@@ -27,16 +27,23 @@ except:
 
 
 class Preprocessing():
-    def __init__(self, analyte: str, samples_dir: str, cache_dir: str, devices: Dict[str, Dict[str, int]], backbone: str, return_node: Optional[str] = None, debug_save_pmfs_as_img: Optional[bool] = False, save_raw_pmfs: Optional[bool] = False):
+    def __init__(self, analyte: str, samples_dir: str, cache_dir: str, devices: Dict[str, Dict[str, int]], use_torchvision_model: bool, use_torchvision_model_pretrained: bool, feature_extractor_backbone: str, return_node: Optional[str] = None, debug_save_pmfs_as_img: Optional[bool] = False, save_raw_pmfs: Optional[bool] = False):
         self.analyte = analyte
         self.samples_dir = samples_dir
         self.cache_dir = cache_dir
         self.devices = devices
         self.save_path = os.path.join(os.path.dirname(__file__), "..")
         self.debug_save_pmfs_as_img = debug_save_pmfs_as_img
-        self.save_raw_pmfs = save_raw_pmfs  # If fine-tuning a pretrained cnn model, raw inputs are required. Therefore, the pmfs are saved rather than the feature maps.
+        self.save_raw_pmfs = save_raw_pmfs  # If fine-tuning / training a cnn model, raw inputs are required. Therefore, the pmfs are saved rather than the feature maps.
         if not self.save_raw_pmfs:
-            self.feature_extractor = FeatureExtractor(analyte=self.analyte, backbone=backbone, return_node=return_node, frozen_weights=True)
+            self.feature_extractor = FeatureExtractor(
+                                                      analyte=self.analyte,
+                                                      use_torchvision_model=use_torchvision_model,
+                                                      use_torchvision_model_pretrained=use_torchvision_model_pretrained,
+                                                      feature_extractor_backbone=feature_extractor_backbone,
+                                                      return_node=return_node,
+                                                      frozen_weights=True
+                                                    )
         else:
             self.feature_extractor = None
 
@@ -73,14 +80,14 @@ class Preprocessing():
 
         # samples preprocessing
         samples = sample_dataset(
-            base_dirs = self.samples_dir,
-            progress_bar = True,
-            skip_blank_samples = True,
-            skip_incomplete_samples = True,
-            skip_inference_sample= True,
-            skip_training_sample = False,
-            verbose = True
-        )
+                                base_dirs = self.samples_dir,
+                                progress_bar = True,
+                                skip_blank_samples = True,
+                                skip_incomplete_samples = True,
+                                skip_inference_sample= True,
+                                skip_training_sample = False,
+                                verbose = True
+            )
         if self.analyte in pca_stats.keys(): # does have PCA
             processed_samples = processed_dataset(
                     dataset = samples,
@@ -108,7 +115,6 @@ class Preprocessing():
                                 "roi_pmf": [],
                         "resized_roi_pmf": []}
         processed_sample = processed_samples
-        # TODO otimizar para ter menos loops
         current_samples_devices = set([i.sample.get("device")["model"].lower() for i in processed_samples])
 
         if self.analyte not in self.devices.keys():
@@ -134,8 +140,7 @@ class Preprocessing():
         shape = None
         num_classes = len(current_samples_devices)
         if not self.save_raw_pmfs:
-            self.feature_extractor = self.feature_extractor.load_from_checkpoint()  # loads pretrained model
-            self.feature_extractor.eval()
+            self.feature_extractor = self.feature_extractor  # loads pretrained model
         else:
             self.feature_extractor = None
         for processed_sample in tqdm(processed_samples, desc = 'extracting features'):
@@ -251,7 +256,7 @@ class Dataset(LightningDataModule):
             cache_dir = self.experiment_config.preprocessing.cache_dir
             feature_extractor = self.experiment_config.feature_extractor
             return_node = self.experiment_config.return_node
-            save_raw_pmfs = self.experiment_config.fine_tune_cnn
+            save_raw_pmfs = self.experiment_config.fine_tune_or_train_cnn
             save_pmf_as_img = self.experiment_config.preprocessing.debug_save_pmfs_as_img
             # Empty cache dir from previous sweep.
             try:
@@ -264,14 +269,14 @@ class Dataset(LightningDataModule):
                 raise RuntimeError(f"Could not prepare cache directory {cache_dir}") from e
 
             preprocessing = Preprocessing(
-                                        analyte=analyte,
-                                        samples_dir=samples_dir,
-                                        cache_dir=cache_dir,
-                                        devices=devices,
-                                        backbone=feature_extractor,
-                                        return_node=return_node,
-                                        debug_save_pmfs_as_img=save_pmf_as_img,
-                                        save_raw_pmfs=save_raw_pmfs
+                                          analyte=analyte,
+                                          samples_dir=samples_dir,
+                                          cache_dir=cache_dir,
+                                          devices=devices,
+                                          feature_extractor_backbone=feature_extractor,
+                                          return_node=return_node,
+                                          debug_save_pmfs_as_img=save_pmf_as_img,
+                                          save_raw_pmfs=save_raw_pmfs
                                         )
             preprocessing.prepare_samples_dataset()
 
@@ -317,19 +322,22 @@ class BaseLightningModule(LightningModule):
             self.learning_rate = experiment_configs.model.learning_rate
             self.learning_rate_patience = experiment_configs.model.learning_rate_patience
             self.early_stopping_patience = experiment_configs.model.early_stopping_patience
-            self.fine_tune_cnn = experiment_configs.fine_tune_cnn
+            self.fine_tune_or_train_cnn = experiment_configs.fine_tune_or_train_cnn
+            self._device = "cuda" if torch.cuda.is_available() else "cpu"
 
-            if self.fine_tune_cnn:
+            if self.fine_tune_or_train_cnn:
                 self.feature_extractor = FeatureExtractor(
-                    analyte=experiment_configs.analyte,
-                    backbone=experiment_configs.feature_extractor,
-                    return_node=experiment_configs.return_node,
-                    frozen_weights=False
-                    )
+                                                        analyte=experiment_configs.analyte,
+                                                        use_torchvision_model=experiment_configs.use_torchvision_model,
+                                                        use_torchvision_model_pretrained=experiment_configs.use_torchvision_model_pretrained,
+                                                        feature_extractor_backbone=experiment_configs.feature_extractor,
+                                                        freeze_cnn_weights=False,
+                                                        return_node=experiment_configs.return_node,
+                                                        )
                 # Dummy forward pass to get the input dim.
                 with torch.no_grad():
                     dummy_input = torch.zeros(1, 511, 511)
-                    dummy_features = self.feature_extractor(dummy_input)
+                    dummy_features = self.feature_extractor(dummy_input).to(self._device)
                     self.classifier_input_dim = dummy_features.shape[1] # Adaptative pool used in Dynamic MLP. The shape will be collapsed from (B, C, H, W) to (B, C, 1, 1). So the input dim is the C.
             else:
                 self.feature_extractor = torch.nn.Identity()
@@ -350,13 +358,15 @@ class BaseLightningModule(LightningModule):
             self._inference_time = {"predictions": [], "targets": []}
 
     def configure_optimizers(self):
-        if self.fine_tune_cnn:
-            self.optimizer = Adam([
-                {"params": self.feature_extractor.parameters(), "lr": self.learning_rate},
-                {"params": self.classifier.parameters(), "lr": self.learning_rate}
-            ])
-        else:
-            self.optimizer = Adam(self.classifier.parameters(), lr=self.learning_rate)
+        # if self.fine_tune_or_train_cnn:
+        #     self.optimizer = Adam([
+        #         {"params": self.feature_extractor.parameters(), "lr": self.learning_rate},
+        #         {"params": self.classifier.parameters(), "lr": self.learning_rate}
+        #     ])
+        # else:
+        #     self.optimizer = Adam(self.classifier.parameters(), lr=self.learning_rate)
+        trainable_params = [p for p in self.parameters() if p.requires_grad]
+        self.optimizer = torch.optim.Adam(trainable_params, lr=self.learning_rate)
 
         self.reduce_lr_on_plateau = ReduceLROnPlateau(self.optimizer, mode='min', patience=self.learning_rate_patience)
         return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
@@ -381,6 +391,11 @@ class BaseLightningModule(LightningModule):
         metrics: MetricCollection = self.metrics[stage]
         self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(logits, y).items()}, batch_size=X.size(0))
         return loss
+
+    def on_train_epoch_start(self):
+        """Prevents the extractor from reactivating BatchNorm and Dropout if the weights are frozen."""
+        if self.freeze_cnn_weights:
+            self.feature_extractor.eval()
 
     def training_step(self, batch: List[torch.Tensor]):
         return self._any_step(batch, "Train")

@@ -1,9 +1,9 @@
-# models.py
 import torch
 import torch.nn as nn
 from torchvision import models
+from torchvision.models import get_model
 from torchvision.models.feature_extraction import create_feature_extractor
-from typing import List, Dict, Optional
+from typing import Tuple, List, Dict, Any, Optional, Callable
 from MABIDs import chemical_analysis as ca
 import yaml, os
 from collections import OrderedDict
@@ -12,82 +12,127 @@ import sys
 
 sys.modules['chemical_analysis'] = ca
 
-# BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+class _ModelRegistry:
+    """Static factory for torchvision models and custom architectures."""
 
-# with open(os.path.join(BASE_DIR, "..", "settings.yaml"), "r") as f:
-#     data_settings = yaml.load(f, Loader=yaml.FullLoader)
+    _TORCHVISION_DEFAULT_FEATURE_NODES = {
+        "vgg11": "features.20",
+        "vgg11_bn": "features.28",
+        "vgg16": "features.30",
+        "vgg16_bn": "features.43",
+        "vgg19": "features.36",
+        "squeezenet1_0": "features.12",
+        "squeezenet1_1": "features.12",
+        "resnet18": "layer4",
+        "resnet50": "layer4",
+    }
+    _MABIDS_CHECKPOINTS = {
+            "alkalinity": {"squeezenet": alkalinity.NETWORK_CHECKPOINT, "vgg11": alkalinity.UPNETWORK_CHECKPOINT},
+            "bisulfite2d": {"squeezenet": bisulfite2d.NETWORK_CHECKPOINT, "vgg11": bisulfite2d.UPNETWORK_CHECKPOINT},
+            "chloride": {"squeezenet": chloride.NETWORK_CHECKPOINT, "vgg11": chloride.UPNETWORK_CHECKPOINT},
+            "iron2": {"squeezenet": iron2.NETWORK_CHECKPOINT, "vgg11": iron2.UPNETWORK_CHECKPOINT},
+            "iron3": {"squeezenet": iron32d.NETWORK_CHECKPOINT, "vgg11": iron32d.UPNETWORK_CHECKPOINT},
+            "ph": {"squeezenet": ph.NETWORK_CHECKPOINT, "vgg11": ph.UPNETWORK_CHECKPOINT},
+            "phosphate": {"squeezenet": phosphate.NETWORK_CHECKPOINT, "vgg11": phosphate.UPNETWORK_CHECKPOINT},
+            "redox": {"squeezenet": redox.NETWORK_CHECKPOINT, "vgg11": redox.UPNETWORK_CHECKPOINT},
+            "sulfate": {"squeezenet": sulfate.NETWORK_CHECKPOINT, "vgg11": sulfate.UPNETWORK_CHECKPOINT},
+        }
+    _MABIDS_CHECKPOINT_DEFAULT_FEATURE_NODES = {
+        "squeezenet": "model.backbone.features.12.cat",
+        "vgg11": "features.20",
+    }
+
+    @classmethod
+    def build_from_torchvision(cls, backbone_name: str, pretrained: bool = False, return_node: Optional[str] = None, **kwargs: Any) -> Tuple[nn.Module, Dict[str, str]]:
+        """Loads a model from torchvision."""
+        backbone_name = backbone_name.lower()
+        weights = "DEFAULT" if pretrained else None
+
+        # Loads the model (Pre-trained or not)
+        model = get_model(backbone_name, weights=weights, **kwargs)
+
+        # Extract and returns the feature extractor module (CNNs)
+        if return_node is None:
+            return_node = cls._get_default_feature_node(model, backbone_name)
+
+        return model, {return_node: 'feature'}
+
+    @classmethod
+    def build_from_mabid_checkpoint(cls, analyte: str, backbone_name: str, return_node: Optional[str] = None) -> Tuple[nn.Module, Dict[str, str]]:
+        """"Loads a pretrained MABID model."""
+        analyte = analyte.lower()
+        backbone_name = backbone_name.lower()
+
+        checkpoint_path = cls._MABIDS_CHECKPOINTS[analyte][backbone_name]
+        state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+        hyper_parameters = state_dict["hyper_parameters"]
+        net_cls = hyper_parameters["network_class"]
+        init_kwargs = {k: v for k, v in hyper_parameters.items() if k != "network_class"}
+        model = net_cls(**init_kwargs)
+        cleaned_weights = OrderedDict([
+            (k.removeprefix("net."), v)
+            for k, v in state_dict["state_dict"].items()
+            if k.startswith("net.")
+        ])
+        model.load_state_dict(cleaned_weights)
+
+        if return_node is None:
+            return_node = cls._MABIDS_CHECKPOINT_DEFAULT_FEATURE_NODES.get(backbone_name)
+
+        return model, {return_node: 'feature'}
+
+    @classmethod
+    def _get_default_feature_node(cls, model: nn.Module, backbone_name: str) -> str:
+        # Case when the backbone is mapped.
+        if backbone_name in cls._TORCHVISION_DEFAULT_FEATURE_NODES:
+            return cls._TORCHVISION_DEFAULT_FEATURE_NODES[backbone_name]
+
+        # Dynamic solution for unlisted VGGs / SqueezeNets.
+        if hasattr(model, "features") and isinstance(model.features, nn.Sequential):
+            last_idx = len(model.features) - 1
+            return f"features.{last_idx}"
+
+        #  Dynamic solution for unlisted ResNet / ConvNeXt.
+        if hasattr(model, "layer4"):
+            return "layer4"
+
+        raise ValueError(f"Could not infer the default feature node for {backbone_name}. \nAdd it to DEFAULT_FEATURE_NODES or pass return_node explicitly.")
 
 class FeatureExtractor(nn.Module):
-    squeezenets = {
-        "alkalinity": alkalinity.AlkalinityNetworkSqueezeNetStyle,
-        "bisulfite": bisulfite2d.Bisulfite2DNetworkSqueezeNetStyle,
-        "chloride": chloride.ChlorideNetworkSqueezeNetStyle,
-        "iron2": iron2.Iron2NetworkSqueezeNetStyle,
-        "iron3": iron32d.Iron3NetworkSqueezeNetStyle,
-        "ph": ph.PhNetworkSqueezeNetStyle,
-        "phosphate": phosphate.PhosphateNetworkSqueezeNetStyle,
-        "redox": redox.RedoxNetworkSqueezeNetStyle,
-        "sulfate": sulfate.SulfateNetworkSqueezeNetStyle,
-    }
-    vgg11s = {
-        "alkalinity": alkalinity.AlkalinityNetworkVgg11Style,
-        "bisulfite": bisulfite2d.Bisulfite2DNetworkVgg11Style,
-        "chloride": chloride.ChlorideNetworkVgg11Style,
-        "iron2": iron2.Iron2NetworkVgg11Style,
-        "iron3": iron32d.Iron3NetworkVgg11Style,
-        "ph": ph.PhNetworkVgg11Style,
-        "phosphate": phosphate.PhosphateNetworkVgg11Style,
-        "redox": redox.RedoxNetworkVgg11Style,
-        "sulfate": sulfate.SulfateNetworkVgg11Style,
-    }
-    checkpoints = {
-        "alkalinity": {"squeezenet": alkalinity.NETWORK_CHECKPOINT, "vgg11": alkalinity.UPNETWORK_CHECKPOINT},
-        "bisulfite": {"squeezenet": bisulfite2d.NETWORK_CHECKPOINT, "vgg11": bisulfite2d.UPNETWORK_CHECKPOINT},
-        "chloride": {"squeezenet": chloride.NETWORK_CHECKPOINT, "vgg11": chloride.UPNETWORK_CHECKPOINT},
-        "iron2": {"squeezenet": iron2.NETWORK_CHECKPOINT, "vgg11": iron2.UPNETWORK_CHECKPOINT},
-        "iron3": {"squeezenet": iron32d.NETWORK_CHECKPOINT, "vgg11": iron32d.UPNETWORK_CHECKPOINT},
-        "ph": {"squeezenet": ph.NETWORK_CHECKPOINT, "vgg11": ph.UPNETWORK_CHECKPOINT},
-        "phosphate": {"squeezenet": phosphate.NETWORK_CHECKPOINT, "vgg11": phosphate.UPNETWORK_CHECKPOINT},
-        "redox": {"squeezenet": redox.NETWORK_CHECKPOINT, "vgg11": redox.UPNETWORK_CHECKPOINT},
-        "sulfate": {"squeezenet": sulfate.NETWORK_CHECKPOINT, "vgg11": sulfate.UPNETWORK_CHECKPOINT},
-    }
 
-    def __init__(self, analyte: str, backbone: Optional[str] = "squeezenet", return_node: Optional[str] = None, frozen_weights: bool = True, *args, **kwargs):
+    def __init__(self, analyte: str, use_torchvision_model: bool, use_torchvision_model_pretrained: bool, feature_extractor_backbone: str, freeze_cnn_weights: bool,  return_node: Optional[str] = None, *args, **kwargs):
         super().__init__()
         self.analyte = analyte
-        self.backbone = backbone
+        self.use_torchvision_model = use_torchvision_model
+        self.use_torchvision_model_pretrained = use_torchvision_model_pretrained
+        self.feature_extractor_backbone = feature_extractor_backbone
+        self.freeze_cnn_weights = freeze_cnn_weights
         self.return_node = return_node
-        self.frozen_weights = frozen_weights
         self._device = "cuda" if torch.cuda.is_available() else "cpu"
-        # Internal Extractor
-        self.extractor = self.load_from_checkpoint()
 
-        # Detach (or not) from the FX graph (Frozen or not the weights).
+        # Internal Extractor
+        if self.use_torchvision_model:
+            model_name = "squeezenet1_1" if self.feature_extractor_backbone == "squeezenet" else feature_extractor_backbone
+            base_net, return_node_dict = _ModelRegistry.build_from_torchvision(backbone_name=model_name, pretrained=self.use_torchvision_model_pretrained, return_node=self.return_node)
+        else:
+            base_net, return_node_dict = _ModelRegistry.build_from_mabid_checkpoint(analyte=self.analyte, backbone_name=self.feature_extractor_backbone, return_node=self.return_node)
+
+        self.extractor = create_feature_extractor(base_net, return_node_dict)
+
+        # Detach (or not) from the FX graph (Froze or not the weights).
         for param in self.extractor.parameters():
             if param.is_floating_point():
-                param.requires_grad = not self.frozen_weights
+                param.requires_grad = not self.freeze_cnn_weights
 
-    def load_from_checkpoint(self, *args, **kwargs):
-        if self.backbone == "squeezenet":
-            backbone_cls = self.squeezenets[self.analyte]
-            checkpoint = self.checkpoints[self.analyte]["squeezenet"]
-            return_node = {'model.backbone.features.12.cat': 'feature'} if self.return_node is None else {self.return_node: 'feature'}
-        elif self.backbone == "vgg11":
-            backbone_cls = self.vgg11s[self.analyte]
-            checkpoint = self.checkpoints[self.analyte]["vgg11"]
-            return_node = {'features.20': 'feature'} if self.return_node is None else {self.return_node: 'feature'}
-        else:
-            raise ValueError("Unsupported Backbone")
+        # Moves the model to device (CPU or GPU).
+        self.extractor.to(self._device)
 
-        state_dict = torch.load(checkpoint, map_location=self._device, weights_only=False)
-        hyper_parameters = state_dict["hyper_parameters"]
-        net = hyper_parameters["network_class"](**hyper_parameters)
-        net.load_state_dict(OrderedDict([(key.removeprefix("net."), value) for (key, value) in state_dict["state_dict"].items() if key.startswith("net.")]))
-
-        if self.frozen_weights:
-            net.eval()
-
-        return create_feature_extractor(net, return_node)
+    def train(self, mode: bool = True):
+        """Prevents the extractor from reactivating BatchNorm and Dropout if the weights are frozen."""
+        super().train(mode)
+        if self.freeze_cnn_weights:
+            self.extractor.eval()
+        return self
 
     def forward(self, x: torch.Tensor):
         out = self.extractor(x)
@@ -191,3 +236,5 @@ class DynamicMLP(nn.Module):
         x = self.pool(x)          # (N, C, 1, 1)
         x = torch.flatten(x, 1)   # (N, C)
         return self.model(x)
+
+
