@@ -62,7 +62,7 @@ class ExperimentConfig(BaseModel):
                                                     description="Use a base model from torchvision. If false, will use a MABID pretrained model.")
     torchvision_model_pretrained: bool = Field(default=None,
                                                             description="Use the weights from the original model or train from scratch.")
-    classifier_model: Literal["mlp1", "dynamicMLP", "squeezenet"] = Field(default=None,
+    classifier_model: Literal["mlp1", "dynamicMLP", "squeezenet_like"] = Field(default=None,
                                                                             description="The classifier architecture used for predicting the device.")
     feature_extractor: Literal["squeezenet",
                                "vgg11",
@@ -150,9 +150,10 @@ class ExperimentConfig(BaseModel):
 class DatasetMetadata(BaseModel):
     num_classes: int
     num_samples: int
-    num_channels: int
+    in_channels: int
     height: int
     width: int
+    datatype: str
 
     @classmethod
     def from_yaml(cls, filename: str) -> "DatasetMetadata":

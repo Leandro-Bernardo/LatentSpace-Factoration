@@ -43,13 +43,17 @@ class _ModelRegistry:
     }
 
     @classmethod
-    def build_from_torchvision(cls, backbone_name: str, pretrained: bool = False, return_node: Optional[str] = None, **kwargs: Any) -> Tuple[nn.Module, Dict[str, str]]:
+    def build_from_torchvision(cls, backbone_name: str, pretrained: bool = False, in_channels: int = 1, return_node: Optional[str] = None, **kwargs: Any) -> Tuple[nn.Module, Dict[str, str]]:
         """Loads a model from torchvision."""
         backbone_name = backbone_name.lower()
         weights = "DEFAULT" if pretrained else None
 
         # Loads the model (Pre-trained or not)
         model = get_model(backbone_name, weights=weights, **kwargs)
+
+        # Adapta os canais de entrada antes de mapear o grafo FX
+        if in_channels != 3:
+            model = cls.adapt_first_conv(model, in_channels=in_channels, pretrained=pretrained)
 
         # Extract and returns the feature extractor module (CNNs)
         if return_node is None:
@@ -63,7 +67,10 @@ class _ModelRegistry:
         analyte = analyte.lower()
         backbone_name = backbone_name.lower()
 
-        checkpoint_path = cls._MABIDS_CHECKPOINTS[analyte][backbone_name]
+        try:
+            checkpoint_path = cls._MABIDS_CHECKPOINTS[analyte][backbone_name]
+        except:
+            raise Exception(f"Unsuported MABID backbone. \nAvailable: squeezenet or vgg11. \nChosen: {backbone_name}")
         state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
         hyper_parameters = state_dict["hyper_parameters"]
         net_cls = hyper_parameters["network_class"]
@@ -98,22 +105,88 @@ class _ModelRegistry:
 
         raise ValueError(f"Could not infer the default feature node for {backbone_name}. \nAdd it to DEFAULT_FEATURE_NODES or pass return_node explicitly.")
 
+    @classmethod
+    def adapt_first_conv(cls, model: nn.Module, in_channels: int = 1, pretrained: bool = False) -> nn.Module:
+        """Replaces the first convolution of torchvision models to accept custom in_channels."""
+        # 1. Locate the first convolutional layer according to the architecture.
+        parent_module, attr_name, old_conv = cls._get_first_conv(model)
+
+        if old_conv.in_channels == in_channels:
+            return model
+
+        # 2. Create the new convolution keeping kernel_size, stride, padding, etc.
+        new_conv = nn.Conv2d(
+            in_channels=in_channels,
+            out_channels=old_conv.out_channels,
+            kernel_size=old_conv.kernel_size,
+            stride=old_conv.stride,
+            padding=old_conv.padding,
+            dilation=old_conv.dilation,
+            groups=1 if old_conv.groups == 1 else in_channels,
+            bias=old_conv.bias is not None,
+            padding_mode=old_conv.padding_mode,
+        )
+
+        # 3. Adapt pre-trained weights (averaged across the RGB channel axis).
+        if pretrained:
+            with torch.no_grad():
+                if in_channels == 1:
+                    # Original shape: [out_channels, 3, K_h, K_w] -> New shape: [out_channels, 1, K_h, K_w]
+                    new_conv.weight.data = old_conv.weight.data.mean(dim=1, keepdim=True)
+                else:
+                    # Gerenic case.
+                    new_conv.weight.data = old_conv.weight.data.repeat(1, in_channels // 3 + 1, 1, 1)[:, :in_channels, :, :]
+
+                if old_conv.bias is not None:
+                    new_conv.bias.data = old_conv.bias.data.clone()
+
+        # 4. Replaces the layer.
+        if isinstance(parent_module, (nn.Sequential, nn.ModuleList)):
+            parent_module[int(attr_name)] = new_conv
+        else:
+            setattr(parent_module, attr_name, new_conv)
+
+        return model
+
+    @classmethod
+    def _get_first_conv(cls, model: nn.Module) -> Tuple[nn.Module, str, nn.Conv2d]:
+        """Identify the parent module, the attribute/index name, and the initial Conv2d layer."""
+        #  ResNet family.
+        if hasattr(model, "conv1") and isinstance(model.conv1, nn.Conv2d):
+            return model, "conv1", model.conv1
+
+        #  VGG, SqueezeNet and AlexNet family (features[0] is Conv2d).
+        if hasattr(model, "features") and len(model.features) > 0:
+            if isinstance(model.features[0], nn.Conv2d):
+                return model.features, "0", model.features[0]
+
+            #  ConvNeXt, EfficientNet, MobileNetV2/V3 (features[0] is a block, ex: Conv2dNormActivation).
+            if hasattr(model.features[0], "0") and isinstance(model.features[0][0], nn.Conv2d):
+                return model.features[0], "0", model.features[0][0]
+
+        # DenseNet family.
+        if hasattr(model, "features") and hasattr(model.features, "conv0"):
+            return model.features, "conv0", model.features.conv0
+
+        raise ValueError(f"Could not automatically identify the first convolution for {type(model).__name__}.")
+
 class FeatureExtractor(nn.Module):
 
-    def __init__(self, analyte: str, use_torchvision_model: bool, torchvision_model_pretrained: bool, feature_extractor_backbone: str, freeze_cnn_weights: bool,  return_node: Optional[str] = None, device: Optional[str] = "cpu", *args, **kwargs):
+    def __init__(self, analyte: str, use_torchvision_model: bool, torchvision_model_pretrained: bool, feature_extractor_backbone: str, freeze_cnn_weights: bool,  in_channels: int = 1, processing_device: str = "cpu", return_node: Optional[str] = None, *args, **kwargs):
         super().__init__()
         self.analyte = analyte
         self.use_torchvision_model = use_torchvision_model
         self.torchvision_model_pretrained = torchvision_model_pretrained
         self.feature_extractor_backbone = feature_extractor_backbone
         self.freeze_cnn_weights = freeze_cnn_weights
+        self.in_channels = in_channels
+        self.processing_device = processing_device
         self.return_node = return_node
-        self._device = device
 
         # Internal Extractor
         if self.use_torchvision_model:
             model_name = "squeezenet1_1" if self.feature_extractor_backbone == "squeezenet" else feature_extractor_backbone
-            base_net, return_node_dict = _ModelRegistry.build_from_torchvision(backbone_name=model_name, pretrained=self.torchvision_model_pretrained, return_node=self.return_node)
+            base_net, return_node_dict = _ModelRegistry.build_from_torchvision(backbone_name=model_name, pretrained=self.torchvision_model_pretrained, in_channels=self.in_channels, return_node=self.return_node)
         else:
             base_net, return_node_dict = _ModelRegistry.build_from_mabid_checkpoint(analyte=self.analyte, backbone_name=self.feature_extractor_backbone, return_node=self.return_node)
 
@@ -124,8 +197,8 @@ class FeatureExtractor(nn.Module):
             if param.is_floating_point():
                 param.requires_grad = not self.freeze_cnn_weights
 
-        # Moves the model to device (CPU or GPU).
-        self.extractor.to(self._device)
+        # Moves the model to processing device (CPU or GPU).
+        self.extractor.to(self.processing_device)
 
     def train(self, mode: bool = True):
         """Prevents the extractor from reactivating BatchNorm and Dropout if the weights are frozen."""
@@ -141,7 +214,7 @@ class FeatureExtractor(nn.Module):
 class MLP1(torch.nn.Module):
     """_Classificador feito utilizando uma MLP_
     """
-    def __init__(self, num_classes: int, device: str = "cuda",  **kwargs):
+    def __init__(self, num_classes: int, processing_device: str = "cuda",  **kwargs):
         super().__init__()
 
         self.input_layer = torch.nn.Sequential(
@@ -199,11 +272,10 @@ class SqueezeNetClassifier(torch.nn.Module):
         #x = torch.nn.functional.softmax(x, dim=1)
         return x
 
-# TODO validar
 class DynamicMLP(nn.Module):
     """_Classificador dinamico utilizando uma MLP_
     """
-    def __init__(self, input_dim: int, num_classes: int):
+    def __init__(self, in_channels: int, num_classes: int):
         super().__init__()
         self.num_classes = num_classes
         self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1)) # apply avgPool (global pool if output shape is (1,1))
@@ -214,10 +286,10 @@ class DynamicMLP(nn.Module):
         layers = []
         dims = []
 
-        first_dim = nearest_power_of_two(input_dim)
-        if first_dim == input_dim:
+        first_dim = nearest_power_of_two(in_channels)
+        if first_dim == in_channels:
             first_dim = first_dim // 2
-        dims = [input_dim, first_dim]
+        dims = [in_channels, first_dim]
 
         while dims[-1] // 2 >= self.num_classes:
             dims.append(dims[-1] // 2)

@@ -27,7 +27,7 @@ except:
 
 
 class Preprocessing():
-    def __init__(self, analyte: str, samples_dir: str, cache_dir: str, cellphone_devices: Dict[str, Dict[str, int]], use_torchvision_model: bool, torchvision_model_pretrained: bool, feature_extractor_backbone: str, return_node: Optional[str] = None, debug_save_pmfs_as_img: Optional[bool] = False, save_raw_pmfs: Optional[bool] = False, processing_device: Optional[str] = "cpu"):
+    def __init__(self, analyte: str, samples_dir: str, cache_dir: str, cellphone_devices: Dict[str, Dict[str, int]], use_torchvision_model: bool, torchvision_model_pretrained: bool, feature_extractor_backbone: str, processing_device: str = "cpu", return_node: Optional[str] = None, debug_save_pmfs_as_img: Optional[bool] = False, save_raw_pmfs: Optional[bool] = False):
         self.analyte = analyte
         self.samples_dir = samples_dir
         self.cache_dir = cache_dir
@@ -36,18 +36,21 @@ class Preprocessing():
         self.debug_save_pmfs_as_img = debug_save_pmfs_as_img
         self.save_raw_pmfs = save_raw_pmfs  # If fine-tuning / training a cnn model, raw inputs are required. Therefore, the pmfs are saved rather than the feature maps.
         self._processing_device = processing_device
-        if not self.save_raw_pmfs:
-            self.feature_extractor = FeatureExtractor(
-                                                      analyte=self.analyte,
-                                                      use_torchvision_model=use_torchvision_model,
-                                                      torchvision_model_pretrained=torchvision_model_pretrained,
-                                                      feature_extractor_backbone=feature_extractor_backbone,
-                                                      freeze_cnn_weights=True,
-                                                      return_node=return_node,
-                                                      device=self._processing_device
-                                                    )
-        else:
-            self.feature_extractor = None
+        self._fe_configs = {
+            "analyte": self.analyte,
+            "use_torchvision_model": use_torchvision_model,
+            "torchvision_model_pretrained": torchvision_model_pretrained,
+            "feature_extractor_backbone": feature_extractor_backbone,
+            "freeze_cnn_weights": True,
+            "return_node": return_node,
+            "processing_device": self._processing_device
+        }
+        self.feature_extractor = None  # Lazy init the feature extractor.
+
+    def _lazy_init_feature_extractor(self, sample_tensor: torch.Tensor):
+        """Discovers the in channel from a real sample (B, C, H, W)."""
+        in_channels = sample_tensor.shape[1]
+        self.feature_extractor = FeatureExtractor(**self._fe_configs, in_channels=in_channels)
 
     def prepare_samples_dataset(self):
         processed_samples, reduction_level = self.process_samples()
@@ -141,10 +144,6 @@ class Preprocessing():
         labels = []
         shape = None
         num_classes = len(current_samples_devices)
-        if not self.save_raw_pmfs:
-            self.feature_extractor = self.feature_extractor  # loads pretrained model
-        else:
-            self.feature_extractor = None
         for processed_sample in tqdm(processed_samples, desc = 'extracting features'):
             # Process the input X (pmf).
             original_pmf = processed_sample.calibrated_pmf
@@ -153,15 +152,22 @@ class Preprocessing():
             #TODO adaptar o resize do chemical analysis
             #TODO definir input size como variavel a ser informada, dependendo do modelo neural
             pmf_tensor_resized = torch.nn.functional.interpolate(pmf_tensor.unsqueeze(0).unsqueeze(0), size=(511, 511), mode='bilinear', align_corners=False).to(self._processing_device)
-            if self.save_raw_pmfs:
-                processed_item = pmf_tensor_resized.squeeze(0).cpu().numpy()
-                metadata_datatype = "preprocessed_pmf_raw_data"
-            else:
+            # Saves the extracted feature maps instead of the PMF (raw inputs) or ...
+            if not self.save_raw_pmfs:
+                # Lazy init the feature extractor with the first sample.
+                if self.feature_extractor is None:
+                    self._lazy_init_feature_extractor(pmf_tensor_resized)
+                # Extract the features.
                 with torch.no_grad():
                     extracted = self.feature_extractor(pmf_tensor_resized.squeeze(0))
                     feature_tensor = extracted.get("feature") if isinstance(extracted, dict) else extracted
                     processed_item = feature_tensor.squeeze(0).detach().cpu().numpy()
                 metadata_datatype = "preprocessed_pmf_feature_maps"
+            # ... saves the PMF (raw inputs) instead of extracted feature maps.
+            else:
+                processed_item = pmf_tensor_resized.squeeze(0).cpu().numpy()
+                metadata_datatype = "preprocessed_pmf_raw_data"
+
             features.append(processed_item)
             data_shape = processed_item.shape
             # Process the output y (cellphone model).
@@ -178,7 +184,7 @@ class Preprocessing():
                 pmfs_as_img["roi_pmf"].append(roi_pmf)
                 pmfs_as_img["resized_roi_pmf"].append(pmf_tensor_resized.squeeze())
 
-        # Saves the processed data as memmaps (https://github.com/numpy/numpy/blob/main/numpy/_core/memmap.py#L23-L362).
+        # Saves the processed data as memmaps.
         save_path = os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset")
         os.makedirs(save_path, exist_ok=True)
         x_save_path = os.path.join(save_path, f"{self.analyte}_processed_samples.dat")
@@ -199,7 +205,7 @@ class Preprocessing():
             data = {
                     "num_classes": num_classes,
                     "num_samples": N,
-                    "num_channels": C,
+                    "in_channels": C,
                     "height": H,
                     "width": W,
                     "datatype": metadata_datatype,
@@ -249,7 +255,7 @@ class Dataset(LightningDataModule):
             load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset")
             with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
                 metadata = yaml.load(f, Loader=yaml.FullLoader)
-            self.num_classes, N, C, H, W = metadata["num_classes"], metadata["num_samples"], metadata["num_channels"], metadata["height"], metadata["width"]
+            self.num_classes, N, C, H, W = metadata["num_classes"], metadata["num_samples"], metadata["in_channels"], metadata["height"], metadata["width"]
             X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
             y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.int64, mode='r', shape=(N))
         except:
@@ -291,7 +297,7 @@ class Dataset(LightningDataModule):
             load_path =  os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset") #torch.load(self.saved_samples_path)
             with open(os.path.join(load_path, f"{self.analyte}_metadata.yaml"), "r") as f:
                 metadata = yaml.load(f, Loader=yaml.FullLoader)
-            self.num_classes, N, C, H, W = metadata["num_classes"], metadata["num_samples"], metadata["num_channels"], metadata["height"], metadata["width"]
+            self.num_classes, N, C, H, W = metadata["num_classes"], metadata["num_samples"], metadata["in_channels"], metadata["height"], metadata["width"]
             X = np.memmap(os.path.join(load_path, f"{self.analyte}_processed_samples.dat"), dtype=np.float32, mode='r', shape=(N, C, H, W))
             y = np.memmap(os.path.join(load_path, f"{self.analyte}_labels.dat"), dtype=np.int64, mode='r', shape=(N))
 
@@ -324,13 +330,16 @@ class Dataset(LightningDataModule):
         return DataLoader(self.dataset_test, batch_size=1,  shuffle=False)#, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
 
 class BaseLightningModule(LightningModule):
-    def __init__(self, *,  experiment_configs: ExperimentConfig, num_classes: int, input_dim: int, **kwargs: Any):
+    def __init__(self, *,  experiment_configs: ExperimentConfig, data_module: Dataset, dataset_metadata: DatasetMetadata, **kwargs: Any):
             super().__init__(**kwargs)
             self.criterion = experiment_configs.model.get_loss_module()
             self.learning_rate = experiment_configs.model.learning_rate
             self.learning_rate_patience = experiment_configs.model.learning_rate_patience
             self.early_stopping_patience = experiment_configs.model.early_stopping_patience
             self.fine_tune_or_train_cnn = experiment_configs.fine_tune_or_train_cnn
+            self.in_channels = dataset_metadata.in_channels
+            self.num_classes = data_module.num_classes
+            self.experiment_configs = experiment_configs
             self._processing_device = experiment_configs.processing_device
 
             if self.fine_tune_or_train_cnn:
@@ -341,39 +350,37 @@ class BaseLightningModule(LightningModule):
                                                         feature_extractor_backbone=experiment_configs.feature_extractor,
                                                         freeze_cnn_weights=False,
                                                         return_node=experiment_configs.return_node,
-                                                        device=self._processing_device
+                                                        in_channels=self.in_channels,
+                                                        processing_device=self._processing_device
                                                         )
                 # Dummy forward pass to get the input dim.
                 with torch.no_grad():
                     dummy_input = torch.zeros(1, 511, 511).to(self._processing_device)
                     dummy_features = self.feature_extractor(dummy_input)
-                    self.classifier_input_dim = dummy_features.shape[1] # Adaptative pool used in Dynamic MLP. The shape will be collapsed from (B, C, H, W) to (B, C, 1, 1). So the input dim is the C.
+                    # Adaptative pool used in Dynamic MLP. The shape will be collapsed from (B, C, H, W) to (B, C, 1, 1). So the input dim is the C.
+                    if experiment_configs.use_torchvision_model:
+                        self.classifier_in_channels = dummy_features.shape[0] # torchvision models returns (C, H, W)
+                    else:
+                        self.classifier_in_channels = dummy_features.shape[1] # MABIDS models returns (1, C, H, W)
             else:
                 self.feature_extractor = torch.nn.Identity()
-                self.classifier_input_dim = input_dim
+                self.classifier_in_channels = self.in_channels
 
             classifier_cls, _ = experiment_configs.get_classifier_architecture()
-            if experiment_configs.classifier_model=="squeezenet":
-                self.classifier = classifier_cls(num_classes=num_classes)
+            if experiment_configs.classifier_model=="squeezenet_like":
+                self.classifier = classifier_cls(num_classes=self.num_classes)
             else:
-                self.classifier = classifier_cls(input_dim=self.classifier_input_dim, num_classes=num_classes)
+                self.classifier = classifier_cls(in_channels=self.classifier_in_channels, num_classes=self.num_classes)
 
             self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
-                                                        "acc": Accuracy(task="multiclass", num_classes=num_classes, average="macro"),
-                                                        "precision": Precision(task="multiclass", num_classes=num_classes, average="macro"),
-                                                        "recall": Recall(task="multiclass", num_classes=num_classes, average="macro"),
-                                                        "F1-score": F1Score(task="multiclass", num_classes=num_classes, average="macro")
+                                                        "acc": Accuracy(task="multiclass", num_classes=self.num_classes, average="macro"),
+                                                        "precision": Precision(task="multiclass", num_classes=self.num_classes, average="macro"),
+                                                        "recall": Recall(task="multiclass", num_classes=self.num_classes, average="macro"),
+                                                        "F1-score": F1Score(task="multiclass", num_classes=self.num_classes, average="macro")
                                                         }) for mode_name in ["Train", "Val", "Test"]})
             self._inference_time = {"predictions": [], "targets": []}
 
     def configure_optimizers(self):
-        # if self.fine_tune_or_train_cnn:
-        #     self.optimizer = Adam([
-        #         {"params": self.feature_extractor.parameters(), "lr": self.learning_rate},
-        #         {"params": self.classifier.parameters(), "lr": self.learning_rate}
-        #     ])
-        # else:
-        #     self.optimizer = Adam(self.classifier.parameters(), lr=self.learning_rate)
         trainable_params = [p for p in self.parameters() if p.requires_grad]
         self.optimizer = torch.optim.Adam(trainable_params, lr=self.learning_rate)
 
@@ -381,9 +388,10 @@ class BaseLightningModule(LightningModule):
         return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
 
     def forward(self, x: Any):
-        # TODO adicionar uma verificacao mais sofisticada para os shapes
-        if len(x.shape) > 3:
-            x = x.squeeze(1)
+        if self.experiment_configs.use_torchvision_model:
+             x = x   # torchvision models returns (C, H, W)
+        else:
+             x = x.squeeze(1)   # MABIDS models returns (1, C, H, W)
         features = self.feature_extractor(x)
         logits = self.classifier(features)
         return logits
