@@ -389,9 +389,9 @@ class BaseLightningModule(LightningModule):
 
     def forward(self, x: Any):
         if self.experiment_configs.use_torchvision_model:
-             x = x   # torchvision models returns (C, H, W)
+            x = x   # torchvision models returns (C, H, W)
         else:
-             x = x.squeeze(1)   # MABIDS models returns (1, C, H, W)
+            x = x.squeeze()   # MABIDS models returns (C, 1, H, W)
         features = self.feature_extractor(x)
         logits = self.classifier(features)
         return logits

@@ -41,6 +41,7 @@ def main():
         assert (metadata.datatype == "preprocessed_pmf_feature_maps" and experiment_config.fine_tune_or_train_cnn is False) \
                     or (metadata.datatype == "preprocessed_pmf_raw_data" and experiment_config.fine_tune_or_train_cnn is True) ,\
                     f"The preexisting dataset ({metadata.datatype}) is incompatible with the current training configuration (fine-tune CNN: {experiment_config.fine_tune_or_train_cnn})."
+
         # load model
         model = BaseLightningModule(
                             experiment_configs=experiment_config,
