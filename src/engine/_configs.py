@@ -115,7 +115,7 @@ class ExperimentConfig(BaseModel):
                 "preprocessing": {
                     "samples_dir": raw_settings.get("samples_dir"),
                     "cache_dir": str(cache_dir),
-                    "debug_save_pmfs_as_img": raw_settings.get("save_pmf_as_img", False),
+                    "debug_save_pmfs_as_img": raw_settings.get("debug_save_pmfs_as_img", False),
                                 },
                 "model": raw_settings.get("model", {}),
                 "processing_device": DEVICE
