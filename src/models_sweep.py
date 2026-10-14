@@ -61,7 +61,7 @@ def main():
                                                 patience= experiment_config.model.early_stopping_patience
                                             ),],
                         gradient_clip_val = experiment_config.gradient_clip,
-                        gradient_clip_algorithm = "value",  # https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#gradient-clipping
+                        gradient_clip_algorithm = "norm",  # https://lightning.ai/docs/pytorch/stable/advanced/training_tricks.html#gradient-clipping
                         log_every_n_steps = 1,
                         num_sanity_val_steps = 0,
                         enable_progress_bar = True,

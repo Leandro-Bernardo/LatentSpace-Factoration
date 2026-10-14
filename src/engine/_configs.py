@@ -142,7 +142,7 @@ class ExperimentConfig(BaseModel):
         mapping = {
             "mlp1": {"model": MLP1, "requires_flatten": True},
             "dynamicMLP": {"model": DynamicMLP, "requires_flatten": True},
-            "squeezenet": {"model": SqueezeNetClassifier, "requires_flatten": False},
+            "squeezenet_like": {"model": SqueezeNetClassifier, "requires_flatten": False},
         }
         chosen = mapping[self.classifier_model]
         return (chosen["model"], chosen["requires_flatten"])

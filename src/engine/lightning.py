@@ -321,10 +321,10 @@ class Dataset(LightningDataModule):
         self.dataset_test = test_set
 
     def train_dataloader(self):
-        return DataLoader(self.dataset_train, batch_size = self.experiment_configs.batch_size)#, shuffle=True, num_workers= 2, pin_memory=True, drop_last=True, persistent_workers=True)
+        return DataLoader(self.dataset_train, batch_size = self.experiment_configs.batch_size,  shuffle=True)#, shuffle=True, num_workers= 2, pin_memory=True, drop_last=True, persistent_workers=True)
 
     def val_dataloader(self):
-        return DataLoader(self.dataset_val, batch_size = self.experiment_configs.batch_size)#, shuffle=False, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
+        return DataLoader(self.dataset_val, batch_size = self.experiment_configs.batch_size, shuffle=False)#, shuffle=False, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
 
     def test_dataloader(self):
         return DataLoader(self.dataset_test, batch_size=1,  shuffle=False)#, num_workers= 2, pin_memory=True, drop_last=False, persistent_workers=True)
@@ -380,18 +380,50 @@ class BaseLightningModule(LightningModule):
                                                         }) for mode_name in ["Train", "Val", "Test"]})
             self._inference_time = {"predictions": [], "targets": []}
 
-    def configure_optimizers(self):
-        trainable_params = [p for p in self.parameters() if p.requires_grad]
-        self.optimizer = torch.optim.Adam(trainable_params, lr=self.learning_rate)
+    # def configure_optimizers(self):
+    #     trainable_params = [p for p in self.parameters() if p.requires_grad]
+    #     self.optimizer = torch.optim.Adam(trainable_params, lr=self.learning_rate)
 
-        self.reduce_lr_on_plateau = ReduceLROnPlateau(self.optimizer, mode='min', patience=self.learning_rate_patience)
-        return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
+    #     self.reduce_lr_on_plateau = ReduceLROnPlateau(self.optimizer, mode='min', patience=self.learning_rate_patience)
+    #     return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
+    def configure_optimizers(self):
+        if self.fine_tune_or_train_cnn:
+            # Identifica os parâmetros pertencentes ao backbone
+            backbone_params = list(self.feature_extractor.parameters())
+            backbone_ids = set(id(p) for p in backbone_params)
+
+            # Filtra apenas parâmetros treináveis
+            backbone_trainable = [p for p in backbone_params if p.requires_grad]
+            head_trainable = [p for p in self.parameters() if id(p) not in backbone_ids and p.requires_grad]
+
+            # Grupos com taxas de aprendizado distintas
+            optimizer_grouped_parameters = [
+                {"params": backbone_trainable, "lr": self.learning_rate * 0.1},
+                {"params": head_trainable, "lr": self.learning_rate},
+            ]
+            self.optimizer = torch.optim.Adam(optimizer_grouped_parameters)
+        else:
+            trainable_params = [p for p in self.parameters() if p.requires_grad]
+            self.optimizer = torch.optim.Adam(trainable_params, lr=self.learning_rate)
+
+        self.reduce_lr_on_plateau = ReduceLROnPlateau(
+            self.optimizer,
+            mode='min',
+            patience=self.learning_rate_patience
+        )
+        return {
+            "optimizer": self.optimizer,
+            "lr_scheduler": {
+                "scheduler": self.reduce_lr_on_plateau,
+                "monitor": "Loss/Val"
+            }
+        }
 
     def forward(self, x: Any):
         if self.experiment_configs.use_torchvision_model:
             x = x   # torchvision models returns (C, H, W)
         else:
-            x = x.squeeze()   # MABIDS models returns (C, 1, H, W)
+            x = x.squeeze(1)   # MABIDS models returns (C, 1, H, W)
         features = self.feature_extractor(x)
         logits = self.classifier(features)
         return logits
@@ -404,9 +436,10 @@ class BaseLightningModule(LightningModule):
         loss = self.criterion(logits , y)
         self.log(f"Loss/{stage}", loss, prog_bar=True, batch_size=X.size(0))
         # Compute and log step metrics.
-        predicted_value = torch.argmax(logits, dim=1)
-        metrics: MetricCollection = self.metrics[stage]
-        self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(logits, y).items()}, batch_size=X.size(0))
+        #predicted_value = torch.argmax(logits, dim=1)
+        #metrics: MetricCollection = self.metrics[stage].update(logits, y)
+        #self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(logits, y).items()}, batch_size=X.size(0))
+        self.metrics[stage].update(logits, y)
         return loss
 
     def on_train_epoch_start(self):
