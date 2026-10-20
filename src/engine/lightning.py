@@ -367,10 +367,7 @@ class BaseLightningModule(LightningModule):
                 self.classifier_in_channels = self.in_channels
 
             classifier_cls, _ = experiment_configs.get_classifier_architecture()
-            if experiment_configs.classifier_model=="squeezenet_like":
-                self.classifier = classifier_cls(num_classes=self.num_classes)
-            else:
-                self.classifier = classifier_cls(input_dim=self.classifier_in_channels, num_classes=self.num_classes)
+            self.classifier = classifier_cls(input_dim=self.classifier_in_channels, num_classes=self.num_classes)
 
             self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
                                                         "acc": Accuracy(task="multiclass", num_classes=self.num_classes, average="macro"),
@@ -380,23 +377,17 @@ class BaseLightningModule(LightningModule):
                                                         }) for mode_name in ["Train", "Val", "Test"]})
             self._inference_time = {"predictions": [], "targets": []}
 
-    # def configure_optimizers(self):
-    #     trainable_params = [p for p in self.parameters() if p.requires_grad]
-    #     self.optimizer = torch.optim.Adam(trainable_params, lr=self.learning_rate)
-
-    #     self.reduce_lr_on_plateau = ReduceLROnPlateau(self.optimizer, mode='min', patience=self.learning_rate_patience)
-    #     return {"optimizer": self.optimizer, "lr_scheduler": {"scheduler": self.reduce_lr_on_plateau, "monitor": "Loss/Val"}}
     def configure_optimizers(self):
         if self.fine_tune_or_train_cnn:
-            # Identifica os parâmetros pertencentes ao backbone
+            # Identifies parameters belonging to the backbone
             backbone_params = list(self.feature_extractor.parameters())
             backbone_ids = set(id(p) for p in backbone_params)
 
-            # Filtra apenas parâmetros treináveis
+            # Filters only trainable parameters
             backbone_trainable = [p for p in backbone_params if p.requires_grad]
             head_trainable = [p for p in self.parameters() if id(p) not in backbone_ids and p.requires_grad]
 
-            # Grupos com taxas de aprendizado distintas
+            # Groups with different learning rates
             optimizer_grouped_parameters = [
                 {"params": backbone_trainable, "lr": self.learning_rate * 0.1},
                 {"params": head_trainable, "lr": self.learning_rate},
@@ -435,10 +426,6 @@ class BaseLightningModule(LightningModule):
         # Compute and log the loss value.
         loss = self.criterion(logits , y)
         self.log(f"Loss/{stage}", loss, prog_bar=True, batch_size=X.size(0))
-        # Compute and log step metrics.
-        #predicted_value = torch.argmax(logits, dim=1)
-        #metrics: MetricCollection = self.metrics[stage].update(logits, y)
-        #self.log_dict({f'{metric_name}/{stage}/Step': value for metric_name, value in metrics(logits, y).items()}, batch_size=X.size(0))
         self.metrics[stage].update(logits, y)
         return loss
 

@@ -10,7 +10,7 @@ feature_extraction:
                                      # Set to False when training only the classification model on frozen feature maps.
                                      # If True, saves the PMF (raw inputs) to disk instead of extracted feature maps.
 
-classifier_model: Null        # dynamicMLP, mlp1, squeezenet or vgg_classifier.
+classifier_model: Null        # dynamicMLP, mlp1, squeezenet_classifier or vgg_classifier.
 
 debug_save_pmfs_as_img: Null # Saves the processed pmf`s as images for a fast validation of the data.
 

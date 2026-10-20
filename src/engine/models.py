@@ -291,16 +291,16 @@ class DynamicMLP(nn.Module):
         x = torch.flatten(x, 1)   # (N, C)
         return self.model(x)
 
-class SqueezeNetClassifier(torch.nn.Module):
+class SqueezeNetClassifier(nn.Module):
     """_Classificador original da arquitetura SqueezeNet_
         Utilizando o classificador com a mesma arquitetura da Squeeze Net original, uma camada de convolução + avg pooling
     """
-    def __init__(self, num_classes: int, in_channels: int = 512, **kwargs):
+    def __init__(self, num_classes: int, input_dim: int = 512, **kwargs):
         super().__init__()
         self.num_classes = num_classes
         self.layer_classifier = torch.nn.Sequential(
             torch.nn.Dropout(p=0.5),
-            torch.nn.Conv2d(in_channels, self.num_classes, kernel_size=1),
+            torch.nn.Conv2d(input_dim, self.num_classes, kernel_size=1),
             #torch.nn.ReLU(inplace=True),
             torch.nn.AdaptiveAvgPool2d((1, 1)),
             torch.nn.Flatten()
@@ -311,14 +311,14 @@ class SqueezeNetClassifier(torch.nn.Module):
         return x
 
 class VGGClassifier(nn.Module):
-    def __init__(self, num_classes=1000, in_features=512 * 7 * 7, dropout_rate=0.5, *args, **kwargs):
+    def __init__(self, num_classes=1000, input_dim=512 * 7 * 7, dropout_rate=0.5, *args, **kwargs):
         super().__init__()
         self.pool = nn.AdaptiveAvgPool2d(output_size=(7, 7))
         self.classifier = nn.Sequential(
             nn.Flatten(),
 
             # First fully conected layer
-            nn.Linear(in_features, 4096),
+            nn.Linear(input_dim, 4096),
             nn.ReLU(inplace=True),
             nn.Dropout(p=dropout_rate),
 
