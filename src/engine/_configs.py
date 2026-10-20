@@ -62,7 +62,7 @@ class ExperimentConfig(BaseModel):
                                                     description="Use a base model from torchvision. If false, will use a MABID pretrained model.")
     torchvision_model_pretrained: bool = Field(default=None,
                                                             description="Use the weights from the original model or train from scratch.")
-    classifier_model: Literal["mlp1", "dynamicMLP", "squeezenet_like"] = Field(default=None,
+    classifier_model: Literal["mlp1", "dynamicMLP", "squeezenet_like", "vgg_classifier", "squeezenet_classifier"] = Field(default=None,
                                                                             description="The classifier architecture used for predicting the device.")
     feature_extractor: Literal["squeezenet",
                                "vgg11",
@@ -115,7 +115,7 @@ class ExperimentConfig(BaseModel):
                 "preprocessing": {
                     "samples_dir": raw_settings.get("samples_dir"),
                     "cache_dir": str(cache_dir),
-                    "debug_save_pmfs_as_img": raw_settings.get("save_pmf_as_img", False),
+                    "debug_save_pmfs_as_img": raw_settings.get("debug_save_pmfs_as_img", False),
                                 },
                 "model": raw_settings.get("model", {}),
                 "processing_device": DEVICE
@@ -137,12 +137,14 @@ class ExperimentConfig(BaseModel):
 
     def get_classifier_architecture(self) -> Tuple[str, bool]:
         # Lazy initialization
-        from .models import MLP1, DynamicMLP, SqueezeNetClassifier
+        from .models import MLP1, DynamicMLP, SqueezeNetClassifier, VGGClassifier
 
         mapping = {
             "mlp1": {"model": MLP1, "requires_flatten": True},
             "dynamicMLP": {"model": DynamicMLP, "requires_flatten": True},
             "squeezenet_like": {"model": SqueezeNetClassifier, "requires_flatten": False},
+            "vgg_classifier": {"model" : VGGClassifier, "requires_flatten": False},
+            "squeezenet_classifier": {"model": SqueezeNetClassifier, "requires_flatten": False}
         }
         chosen = mapping[self.classifier_model]
         return (chosen["model"], chosen["requires_flatten"])

@@ -182,7 +182,7 @@ class Preprocessing():
             if debug_save_pmfs_as_img:
                 pmfs_as_img["original_pmf"].append(original_pmf)
                 pmfs_as_img["roi_pmf"].append(roi_pmf)
-                pmfs_as_img["resized_roi_pmf"].append(pmf_tensor_resized.squeeze())
+                pmfs_as_img["resized_roi_pmf"].append(pmf_tensor_resized.squeeze().to("cpu"))
 
         # Saves the processed data as memmaps.
         save_path = os.path.join(os.path.dirname(__file__), "..", "..", "processed_dataset")

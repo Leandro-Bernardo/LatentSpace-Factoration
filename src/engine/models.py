@@ -252,26 +252,6 @@ class MLP1(torch.nn.Module):
 
         return x
 
-class SqueezeNetClassifier(torch.nn.Module):
-    """_Classificador original da arquitetura SqueezeNet_
-        Utilizando o classificador com a mesma arquitetura da Squeeze Net original, uma camada de convolução + avg pooling
-    """
-    def __init__(self, num_classes: int, in_channels: int = 512, **kwargs):
-        super().__init__()
-        self.num_classes = num_classes
-        self.layer_classifier = torch.nn.Sequential(
-            torch.nn.Dropout(p=0.5),
-            torch.nn.Conv2d(in_channels, self.num_classes, kernel_size=1),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.AdaptiveAvgPool2d((1, 1)),
-            torch.nn.Flatten()
-        )
-
-    def forward(self, x: torch.Tensor):
-        x = self.layer_classifier(x)
-        #x = torch.nn.functional.softmax(x, dim=1)
-        return x
-
 class DynamicMLP(nn.Module):
     """_Classificador dinamico utilizando uma MLP_
     """
@@ -309,4 +289,47 @@ class DynamicMLP(nn.Module):
         x = torch.flatten(x, 1)   # (N, C)
         return self.model(x)
 
+class SqueezeNetClassifier(torch.nn.Module):
+    """_Classificador original da arquitetura SqueezeNet_
+        Utilizando o classificador com a mesma arquitetura da Squeeze Net original, uma camada de convolução + avg pooling
+    """
+    def __init__(self, num_classes: int, in_channels: int = 512, **kwargs):
+        super().__init__()
+        self.num_classes = num_classes
+        self.layer_classifier = torch.nn.Sequential(
+            torch.nn.Dropout(p=0.5),
+            torch.nn.Conv2d(in_channels, self.num_classes, kernel_size=1),
+            #torch.nn.ReLU(inplace=True),
+            torch.nn.AdaptiveAvgPool2d((1, 1)),
+            torch.nn.Flatten()
+        )
 
+    def forward(self, x: torch.Tensor):
+        x = self.layer_classifier(x)
+        return x
+
+class VGGClassifier(nn.Module):
+    def __init__(self, num_classes=1000, in_features=512 * 7 * 7, dropout_rate=0.5, *args, **kwargs):
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool2d(output_size=(7, 7))
+        self.classifier = nn.Sequential(
+            nn.Flatten(),
+
+            # First fully conected layer
+            nn.Linear(in_features, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout_rate),
+
+            # Second fully conected layer
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout_rate),
+
+            # Third fully conected layer (Logits` Output`)
+            nn.Linear(4096, num_classes)
+        )
+
+    def forward(self, x):
+        x = self.pool(x)
+        x = self.classifier(x)
+        return x
