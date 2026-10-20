@@ -51,7 +51,7 @@ class _ModelRegistry:
         # Loads the model (Pre-trained or not)
         model = get_model(backbone_name, weights=weights, **kwargs)
 
-        # Adapta os canais de entrada antes de mapear o grafo FX
+        # Adapts the input channels before mapping the FX graph
         if in_channels != 3:
             model = cls.adapt_first_conv(model, in_channels=in_channels, pretrained=pretrained)
 
@@ -255,10 +255,12 @@ class MLP1(torch.nn.Module):
 class DynamicMLP(nn.Module):
     """_Classificador dinamico utilizando uma MLP_
     """
-    def __init__(self, in_channels: int, num_classes: int):
+    def __init__(self, input_dim: int, num_classes: int):
         super().__init__()
         self.num_classes = num_classes
         self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1)) # apply avgPool (global pool if output shape is (1,1))
+
+        assert input_dim > 1, f"Input dim is too low ({input_dim}). Verify the data."
 
         def nearest_power_of_two(n):
             return 2 ** (n.bit_length() - 1)
@@ -266,10 +268,10 @@ class DynamicMLP(nn.Module):
         layers = []
         dims = []
 
-        first_dim = nearest_power_of_two(in_channels)
-        if first_dim == in_channels:
+        first_dim = nearest_power_of_two(input_dim)
+        if first_dim == input_dim:
             first_dim = first_dim // 2
-        dims = [in_channels, first_dim]
+        dims = [input_dim, first_dim]
 
         while dims[-1] // 2 >= self.num_classes:
             dims.append(dims[-1] // 2)

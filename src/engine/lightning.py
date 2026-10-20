@@ -370,7 +370,7 @@ class BaseLightningModule(LightningModule):
             if experiment_configs.classifier_model=="squeezenet_like":
                 self.classifier = classifier_cls(num_classes=self.num_classes)
             else:
-                self.classifier = classifier_cls(in_channels=self.classifier_in_channels, num_classes=self.num_classes)
+                self.classifier = classifier_cls(input_dim=self.classifier_in_channels, num_classes=self.num_classes)
 
             self.metrics = ModuleDict({mode_name: MetricCollection({  # https://lightning.ai/docs/torchmetrics/stable/pages/overview.html#metric-kwargs
                                                         "acc": Accuracy(task="multiclass", num_classes=self.num_classes, average="macro"),
