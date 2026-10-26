@@ -62,7 +62,7 @@ class ExperimentConfig(BaseModel):
                                                     description="Use a base model from torchvision. If false, will use a MABID pretrained model.")
     torchvision_model_pretrained: bool = Field(default=None,
                                                             description="Use the weights from the original model or train from scratch.")
-    classifier_model: Literal["mlp1", "dynamicMLP", "squeezenet_like", "vgg_classifier", "squeezenet_classifier"] = Field(default=None,
+    classifier_model: Literal["mlp1", "dynamicMLP", "dynamicMLPv2", "dynamicMLPv3", "squeezenet_like", "vgg_classifier", "squeezenet_classifier"] = Field(default=None,
                                                                             description="The classifier architecture used for predicting the device.")
     feature_extractor: Literal["squeezenet",
                                "vgg11",
@@ -137,11 +137,13 @@ class ExperimentConfig(BaseModel):
 
     def get_classifier_architecture(self) -> Tuple[str, bool]:
         # Lazy initialization
-        from .models import MLP1, DynamicMLP, SqueezeNetClassifier, VGGClassifier
+        from .models import MLP1, DynamicMLP, DynamicMLPv2, DynamicMLPv3, SqueezeNetClassifier, VGGClassifier
 
         mapping = {
             "mlp1": {"model": MLP1, "requires_flatten": True},
             "dynamicMLP": {"model": DynamicMLP, "requires_flatten": True},
+            "dynamicMLPv2": {"model": DynamicMLPv2, "requires_flatten": True},
+            "dynamicMLPv3": {"model": DynamicMLPv3, "requires_flatten": True},
             "squeezenet_like": {"model": SqueezeNetClassifier, "requires_flatten": False},
             "vgg_classifier": {"model" : VGGClassifier, "requires_flatten": False},
             "squeezenet_classifier": {"model": SqueezeNetClassifier, "requires_flatten": False}

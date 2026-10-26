@@ -291,6 +291,93 @@ class DynamicMLP(nn.Module):
         x = torch.flatten(x, 1)   # (N, C)
         return self.model(x)
 
+class DynamicMLPv2(nn.Module):
+    """_Classificador dinâmico utilizando uma MLP reduzindo por fator de 4_"""
+
+    def __init__(self, input_dim: int, num_classes: int):
+        super().__init__()
+        self.num_classes = num_classes
+        self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+
+        assert (
+            input_dim > 1
+        ), f"Input dim is too low ({input_dim}). Verify the data."
+
+        def nearest_power_of_four(n):
+            shift = (n.bit_length() - 1) // 2
+            return 4**shift
+
+        layers = []
+
+        first_dim = nearest_power_of_four(input_dim)
+        if first_dim == input_dim:
+            first_dim = first_dim // 4
+
+        if first_dim < self.num_classes:
+            dims = [input_dim]
+        else:
+            dims = [input_dim, first_dim]
+            while dims[-1] // 4 >= self.num_classes:
+                dims.append(dims[-1] // 4)
+
+        for i in range(len(dims) - 1):
+            layers.append(nn.Dropout(0.3))
+            layers.append(nn.Linear(dims[i], dims[i + 1]))
+            layers.append(nn.BatchNorm1d(dims[i + 1]))
+            layers.append(nn.ReLU())
+
+        layers.append(nn.Linear(dims[-1], self.num_classes))
+
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.pool(x)  # (N, C, 1, 1)
+        x = torch.flatten(x, 1)  # (N, C)
+        return self.model(x)
+
+class DynamicMLPv3(nn.Module):
+    """_Classificador dinâmico utilizando uma MLP reduzindo por fator de 8_"""
+
+    def __init__(self, input_dim: int, num_classes: int):
+        super().__init__()
+        self.num_classes = num_classes
+        self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+
+        assert (
+            input_dim > 1
+        ), f"Input dim is too low ({input_dim}). Verify the data."
+
+        def nearest_power_of_eight(n):
+            shift = (n.bit_length() - 1) // 2
+            return 8**shift
+
+        layers = []
+
+        first_dim = nearest_power_of_eight(input_dim)
+        if first_dim == input_dim:
+            first_dim = first_dim // 8
+
+        if first_dim < self.num_classes:
+            dims = [input_dim]
+        else:
+            dims = [input_dim, first_dim]
+            while dims[-1] // 8 >= self.num_classes:
+                dims.append(dims[-1] // 8)
+
+        for i in range(len(dims) - 1):
+            layers.append(nn.Dropout(0.3))
+            layers.append(nn.Linear(dims[i], dims[i + 1]))
+            layers.append(nn.BatchNorm1d(dims[i + 1]))
+            layers.append(nn.ReLU())
+
+        layers.append(nn.Linear(dims[-1], self.num_classes))
+
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = self.pool(x)  # (N, C, 1, 1)
+        x = torch.flatten(x, 1)  # (N, C)
+        return self.model(x)
 class SqueezeNetClassifier(nn.Module):
     """_Classificador original da arquitetura SqueezeNet_
         Utilizando o classificador com a mesma arquitetura da Squeeze Net original, uma camada de convolução + avg pooling
