@@ -137,16 +137,40 @@ class ExperimentConfig(BaseModel):
 
     def get_classifier_architecture(self) -> Tuple[str, bool]:
         # Lazy initialization
-        from .models import MLP1, DynamicMLP, DynamicMLPv2, DynamicMLPv3, SqueezeNetClassifier, VGGClassifier
+        from .models import DynamicClassifier, DynamicClassifierv2, DynamicClassifierv3, SqueezeNetClassifier, VGGClassifier
 
         mapping = {
-            "mlp1": {"model": MLP1, "requires_flatten": True},
-            "dynamicMLP": {"model": DynamicMLP, "requires_flatten": True},
-            "dynamicMLPv2": {"model": DynamicMLPv2, "requires_flatten": True},
-            "dynamicMLPv3": {"model": DynamicMLPv3, "requires_flatten": True},
+            "dynamicClassifier": {"model": DynamicClassifier, "requires_flatten": True},
+            "dynamicClassifierv2": {"model": DynamicClassifierv2, "requires_flatten": True},
+            "dynamicClassifierv3": {"model": DynamicClassifierv3, "requires_flatten": True},
             "squeezenet_like": {"model": SqueezeNetClassifier, "requires_flatten": False},
             "vgg_classifier": {"model" : VGGClassifier, "requires_flatten": False},
-            "squeezenet_classifier": {"model": SqueezeNetClassifier, "requires_flatten": False}
+            "squeezenet_classifier": {"model": SqueezeNetClassifier, "requires_flatten": False},
+        }
+        chosen = mapping[self.classifier_model]
+        return (chosen["model"], chosen["requires_flatten"])
+
+    def get_regressor_architecture(self):
+        # Lazy initialization
+        from .models import DynamicRegressor, DynamicRegressorv2, DynamicRegressorv3, SqueezeNetRegressor, VGGRegressor
+
+        mapping = {
+                    "dynamicRegressor": {"model": DynamicRegressor, "requires_flatten": True},
+                    "dynamicRegressorv2": {"model": DynamicRegressorv2, "requires_flatten": True},
+                    "dynamicRegressorv3": {"model": DynamicRegressorv3, "requires_flatten": True},
+                    "squeezenet_like": {"model": SqueezeNetRegressor, "requires_flatten": False},
+                    "vgg_classifier": {"model" : VGGRegressor, "requires_flatten": False},
+                    "squeezenet_classifier": {"model": SqueezeNetRegressor, "requires_flatten": False},
+                }
+        chosen = mapping[self.classifier_model]
+        return (chosen["model"], chosen["requires_flatten"])
+
+    def get_lsf_architecture(self) -> Tuple[str, bool]:
+        # Lazy initialization
+        from .models import  LSFModel
+
+        mapping = {
+            "LSFmodel": {"model": LSFModel, "requires_flatten": False},
         }
         chosen = mapping[self.classifier_model]
         return (chosen["model"], chosen["requires_flatten"])

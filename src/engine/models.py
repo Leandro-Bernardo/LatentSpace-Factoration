@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+from torch.func import functional_call
 from torchvision import models
 from torchvision.models import get_model
 from torchvision.models.feature_extraction import create_feature_extractor
@@ -12,7 +13,7 @@ import sys
 
 sys.modules['chemical_analysis'] = ca
 
-class _ModelRegistry:
+class _FeatureExtractorModelRegistry:
     """Static factory for torchvision models and custom architectures."""
 
     _TORCHVISION_DEFAULT_FEATURE_NODES = {
@@ -186,9 +187,9 @@ class FeatureExtractor(nn.Module):
         # Internal Extractor
         if self.use_torchvision_model:
             model_name = "squeezenet1_1" if self.feature_extractor_backbone == "squeezenet" else feature_extractor_backbone
-            base_net, return_node_dict = _ModelRegistry.build_from_torchvision(backbone_name=model_name, pretrained=self.torchvision_model_pretrained, in_channels=self.in_channels, return_node=self.return_node)
+            base_net, return_node_dict = _FeatureExtractorModelRegistry.build_from_torchvision(backbone_name=model_name, pretrained=self.torchvision_model_pretrained, in_channels=self.in_channels, return_node=self.return_node)
         else:
-            base_net, return_node_dict = _ModelRegistry.build_from_mabid_checkpoint(analyte=self.analyte, backbone_name=self.feature_extractor_backbone, return_node=self.return_node)
+            base_net, return_node_dict = _FeatureExtractorModelRegistry.build_from_mabid_checkpoint(analyte=self.analyte, backbone_name=self.feature_extractor_backbone, return_node=self.return_node)
 
         self.extractor = create_feature_extractor(base_net, return_node_dict)
 
@@ -211,49 +212,8 @@ class FeatureExtractor(nn.Module):
         out = self.extractor(x)
         return out['feature']
 
-class MLP1(torch.nn.Module):
-    """_Classificador feito utilizando uma MLP_
-    """
-    def __init__(self, num_classes: int, processing_device: str = "cuda",  **kwargs):
-        super().__init__()
-
-        self.input_layer = torch.nn.Sequential(
-                                    torch.nn.Linear(in_features=784, out_features=512, bias=True),
-                                    torch.nn.ReLU(),)
-        self.l5 = torch.nn.Sequential(
-                                    torch.nn.Linear(in_features=512, out_features=256, bias=True),
-                                    torch.nn.ReLU(),)
-        self.l4 = torch.nn.Sequential(
-                                    torch.nn.Linear(in_features=256, out_features=128, bias=True),
-                                    torch.nn.ReLU(),)
-        self.l3 = torch.nn.Sequential(
-                                    torch.nn.Linear(in_features=128, out_features=64, bias=True),
-                                    torch.nn.ReLU(),)
-        self.l2 = torch.nn.Sequential(
-                                    torch.nn.Linear(in_features=64, out_features=32, bias=True),
-                                    torch.nn.ReLU(),)
-        self.l1 = torch.nn.Sequential(
-                                    torch.nn.Linear(in_features=32, out_features=16, bias=True),
-                                    torch.nn.ReLU(),)
-        self.output_layer = torch.nn.Sequential(
-                                    torch.nn.Linear(in_features=16, out_features=10, bias=True),
-                                    torch.nn.ReLU(),)
-
-    def forward(self, x: torch.Tensor):
-
-        x = self.input_layer(x)
-        x = self.l5(x)
-        x = self.l4(x)
-        x = self.l3(x)
-        x = self.l2(x)
-        x = self.l1(x)
-        x = self.output_layer(x)
-        #x = torch.nn.functional.softmax(x, dim=1)
-
-        return x
-
-class DynamicMLP(nn.Module):
-    """_Classificador dinamico utilizando uma MLP_
+class DynamicClassifier(nn.Module):
+    """Classificador dinamico utilizando uma MLP reduzindo por fator de 2.
     """
     def __init__(self, input_dim: int, num_classes: int):
         super().__init__()
@@ -291,8 +251,8 @@ class DynamicMLP(nn.Module):
         x = torch.flatten(x, 1)   # (N, C)
         return self.model(x)
 
-class DynamicMLPv2(nn.Module):
-    """_Classificador dinâmico utilizando uma MLP reduzindo por fator de 4_"""
+class DynamicClassifierv2(nn.Module):
+    """Classificador dinâmico utilizando uma MLP reduzindo por fator de 4."""
 
     def __init__(self, input_dim: int, num_classes: int):
         super().__init__()
@@ -335,8 +295,8 @@ class DynamicMLPv2(nn.Module):
         x = torch.flatten(x, 1)  # (N, C)
         return self.model(x)
 
-class DynamicMLPv3(nn.Module):
-    """_Classificador dinâmico utilizando uma MLP reduzindo por fator de 8_"""
+class DynamicClassifierv3(nn.Module):
+    """Classificador dinâmico utilizando uma MLP reduzindo por fator de 8."""
 
     def __init__(self, input_dim: int, num_classes: int):
         super().__init__()
@@ -348,7 +308,7 @@ class DynamicMLPv3(nn.Module):
         ), f"Input dim is too low ({input_dim}). Verify the data."
 
         def nearest_power_of_eight(n):
-            shift = (n.bit_length() - 1) // 2
+            shift = (n.bit_length() - 1) // 3
             return 8**shift
 
         layers = []
@@ -378,9 +338,9 @@ class DynamicMLPv3(nn.Module):
         x = self.pool(x)  # (N, C, 1, 1)
         x = torch.flatten(x, 1)  # (N, C)
         return self.model(x)
+
 class SqueezeNetClassifier(nn.Module):
-    """_Classificador original da arquitetura SqueezeNet_
-        Utilizando o classificador com a mesma arquitetura da Squeeze Net original, uma camada de convolução + avg pooling
+    """Classificador original da arquitetura SqueezeNet (Conv 1x1 + Global Avg Pool).
     """
     def __init__(self, num_classes: int, input_dim: int = 512, **kwargs):
         super().__init__()
@@ -398,6 +358,9 @@ class SqueezeNetClassifier(nn.Module):
         return x
 
 class VGGClassifier(nn.Module):
+    """Classificador original da arquitetura da VGG 11.
+    """
+
     def __init__(self, num_classes=1000, input_dim=512 * 7 * 7, dropout_rate=0.5, *args, **kwargs):
         super().__init__()
         self.pool = nn.AdaptiveAvgPool2d(output_size=(7, 7))
@@ -422,3 +385,229 @@ class VGGClassifier(nn.Module):
         x = self.pool(x)
         x = self.classifier(x)
         return x
+
+class DynamicRegressor(nn.Module):
+    """Regressor dinâmico utilizando uma MLP reduzindo por fator de 2."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int = 1,
+        min_hidden_dim: int = 8,
+        dropout_rate: float = 0.3,
+    ):
+        super().__init__()
+        self.output_dim = output_dim
+        self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+
+        assert input_dim > 1, f"Input dim is too low ({input_dim}). Verify the data."
+
+        def nearest_power_of_two(n: int) -> int:
+            return 2 ** (n.bit_length() - 1)
+
+        stop_dim = max(self.output_dim, min_hidden_dim)
+        first_dim = nearest_power_of_two(input_dim)
+        if first_dim == input_dim:
+            first_dim = first_dim // 2
+
+        if first_dim < stop_dim:
+            dims = [input_dim]
+        else:
+            dims = [input_dim, first_dim]
+            while dims[-1] // 2 >= stop_dim:
+                dims.append(dims[-1] // 2)
+
+        layers = []
+        for i in range(len(dims) - 1):
+            layers.append(nn.Dropout(dropout_rate))
+            layers.append(nn.Linear(dims[i], dims[i + 1]))
+            layers.append(nn.BatchNorm1d(dims[i + 1]))
+            layers.append(nn.ReLU())
+
+        layers.append(nn.Linear(dims[-1], self.output_dim))
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.pool(x)         # (N, C, 1, 1)
+        x = torch.flatten(x, 1)  # (N, C)
+        return self.model(x)     # (N, output_dim)
+
+class DynamicRegressorv2(nn.Module):
+    """Regressor dinâmico utilizando uma MLP reduzindo por fator de 4."""
+
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int = 1,
+        min_hidden_dim: int = 8,
+        dropout_rate: float = 0.3,
+    ):
+        super().__init__()
+        self.output_dim = output_dim
+        self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+
+        assert input_dim > 1, f"Input dim is too low ({input_dim}). Verify the data."
+
+        def nearest_power_of_four(n: int) -> int:
+            shift = (n.bit_length() - 1) // 2
+            return 4**shift
+
+        stop_dim = max(self.output_dim, min_hidden_dim)
+        first_dim = nearest_power_of_four(input_dim)
+        if first_dim == input_dim:
+            first_dim = first_dim // 4
+
+        if first_dim < stop_dim:
+            dims = [input_dim]
+        else:
+            dims = [input_dim, first_dim]
+            while dims[-1] // 4 >= stop_dim:
+                dims.append(dims[-1] // 4)
+
+        layers = []
+        for i in range(len(dims) - 1):
+            layers.append(nn.Dropout(dropout_rate))
+            layers.append(nn.Linear(dims[i], dims[i + 1]))
+            layers.append(nn.BatchNorm1d(dims[i + 1]))
+            layers.append(nn.ReLU())
+
+        layers.append(nn.Linear(dims[-1], self.output_dim))
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.pool(x)         # (N, C, 1, 1)
+        x = torch.flatten(x, 1)  # (N, C)
+        return self.model(x)     # (N, output_dim)
+
+class DynamicRegressorv3(nn.Module):
+    """Regressor dinâmico utilizando uma MLP reduzindo por fator de 8."""
+
+    def __init__(self, input_dim: int, output_dim: int = 1, min_hidden_dim: int = 8, dropout_rate: float = 0.3, ):
+        super().__init__()
+        self.output_dim = output_dim
+        self.pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+
+        assert input_dim > 1, f"Input dim is too low ({input_dim}). Verify the data."
+
+        def nearest_power_of_eight(n: int) -> int:
+            shift = (n.bit_length() - 1) // 3
+            return 8**shift
+
+        stop_dim = max(self.output_dim, min_hidden_dim)
+        first_dim = nearest_power_of_eight(input_dim)
+        if first_dim == input_dim:
+            first_dim = first_dim // 8
+
+        if first_dim < stop_dim:
+            dims = [input_dim]
+        else:
+            dims = [input_dim, first_dim]
+            while dims[-1] // 8 >= stop_dim:
+                dims.append(dims[-1] // 8)
+
+        layers = []
+        for i in range(len(dims) - 1):
+            layers.append(nn.Dropout(dropout_rate))
+            layers.append(nn.Linear(dims[i], dims[i + 1]))
+            layers.append(nn.BatchNorm1d(dims[i + 1]))
+            layers.append(nn.ReLU())
+
+        layers.append(nn.Linear(dims[-1], self.output_dim))
+        self.model = nn.Sequential(*layers)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.pool(x)         # (N, C, 1, 1)
+        x = torch.flatten(x, 1)  # (N, C)
+        return self.model(x)     # (N, output_dim)
+
+class SqueezeNetRegressor(nn.Module):
+    """Regressor original da arquitetura SqueezeNet (Conv 1x1 + Global Avg Pool).
+    """
+
+    def __init__(self, output_dim: int = 1, input_dim: int = 512, dropout_rate: float = 0.5, **kwargs, ):
+        super().__init__()
+        self.output_dim = output_dim
+        self.layer_regressor = nn.Sequential(
+            nn.Dropout(p=dropout_rate),
+            nn.Conv2d(input_dim, self.output_dim, kernel_size=1),
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.layer_regressor(x)  # (N, output_dim)
+
+class VGGRegressor(nn.Module):
+    """Regressor original da arquitetura da VGG 11.
+    """
+
+    def __init__(self, output_dim: int = 1, input_dim: int = 512 * 7 * 7, dropout_rate: float = 0.5, *args, **kwargs, ):
+        super().__init__()
+        self.pool = nn.AdaptiveAvgPool2d(output_size=(7, 7))
+        self.regressor = nn.Sequential(
+            nn.Flatten(),
+            # First fully connected layer
+            nn.Linear(input_dim, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout_rate),
+            # Second fully connected layer
+            nn.Linear(4096, 4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout_rate),
+            # Third fully connected layer (Regression Output)
+            nn.Linear(4096, output_dim),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.pool(x)
+        return self.regressor(x)  # (N, output_dim)
+
+class LSFModel(nn.Module):
+    """Gerencia o backbone convolucional e os cabeçotes de classificação e regressão,
+    particionando o espaço latente em z_clf e z_reg e congelando os pesos dos
+    cabeçotes nas avaliações cruzadas (F_bar e G_bar).
+    """
+
+    def __init__(self, feature_extractor: nn.Module, classifier_model: nn.Module, regressor_model: nn.Module, ):
+        super().__init__()
+        self.feature_extractor = feature_extractor
+        self.classifier_model = classifier_model
+        self.regressor_model = regressor_model
+
+    @staticmethod
+    def _forward_frozen_weights(module: nn.Module, z: torch.Tensor) -> torch.Tensor:
+        """Executa o head (classificador ou regressor) com pesos congelados e buffers protegidos,
+        mantendo o gradiente ativo para atualizar o backbone convolucional.
+        """
+        frozen_params = {k: v.detach() for k, v in module.named_parameters()}
+        frozen_buffers = {k: v.detach().clone() for k, v in module.named_buffers()}
+        return functional_call(module, (frozen_params, frozen_buffers), (z,))
+
+    def forward(self, x: torch.Tensor) -> dict[str, torch.Tensor]:
+        # 1. Extrai o espaço latente compartilhado a partir da CNN
+        z = self.feature_extractor(x)
+
+        if z.size(1) % 2 != 0:
+            raise ValueError(
+                f"A dimensão latente (dim=1) deve ser par para o particionamento, recebido: {z.size(1)}"
+            )
+
+        # 2. Particiona em dois subespaços disjuntos (funciona para (B, D) ou (B, C, H, W))
+        z_clf, z_reg = torch.chunk(z, chunks=2, dim=1)
+
+        # 3. Passes principais (cabeçote DESCONGELADO + backbone treina o subespaço correto)
+        reg_for_F = self.regressor_model(z_reg)
+        clf_for_G = self.classifier_model(z_clf)
+
+        # 4. Passes cruzados (cabeçote CONGELADO + backbone expulsa informação do subespaço oposto)
+        reg_for_F_bar = self._forward_frozen_weights(self.regressor_model, z_clf)
+        clf_for_G_bar = self._forward_frozen_weights(self.classifier_model, z_reg)
+
+        return {
+            "z_clf": z_clf,
+            "z_reg": z_reg,
+            "reg_for_F": reg_for_F,
+            "reg_for_F_bar": reg_for_F_bar,
+            "clf_for_G": clf_for_G,
+            "clf_for_G_bar": clf_for_G_bar,
+        }
