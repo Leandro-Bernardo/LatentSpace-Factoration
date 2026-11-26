@@ -593,21 +593,19 @@ class LSFModel(nn.Module):
             )
 
         # 2. Particiona em dois subespaços disjuntos (funciona para (B, D) ou (B, C, H, W))
-        z_clf, z_reg = torch.chunk(z, chunks=2, dim=1)
+        z_reg, z_clf = torch.chunk(z, chunks=2, dim=1)
 
         # 3. Passes principais (cabeçote DESCONGELADO + backbone treina o subespaço correto)
-        reg_for_F = self.regressor_model(z_reg)
-        clf_for_G = self.classifier_model(z_clf)
+        logits_reg_for_F = self.regressor_model(z_reg)
+        logits_clf_for_G = self.classifier_model(z_clf)
 
         # 4. Passes cruzados (cabeçote CONGELADO + backbone expulsa informação do subespaço oposto)
-        reg_for_F_bar = self._forward_frozen_weights(self.regressor_model, z_clf)
-        clf_for_G_bar = self._forward_frozen_weights(self.classifier_model, z_reg)
+        logits_reg_for_F_bar = self._forward_frozen_weights(self.regressor_model, z_clf)
+        logits_clf_for_G_bar = self._forward_frozen_weights(self.classifier_model, z_reg)
 
         return {
-            "z_clf": z_clf,
-            "z_reg": z_reg,
-            "reg_for_F": reg_for_F,
-            "reg_for_F_bar": reg_for_F_bar,
-            "clf_for_G": clf_for_G,
-            "clf_for_G_bar": clf_for_G_bar,
+            "logits_reg_for_F": logits_reg_for_F,
+            "logits_reg_for_F_bar": logits_reg_for_F_bar,
+            "logits_clf_for_G": logits_clf_for_G,
+            "logits_clf_for_G_bar": logits_clf_for_G_bar,
         }

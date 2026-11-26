@@ -27,7 +27,7 @@ class _F_bar_loss(nn.Module):
         output = 1 - tanH_output
         return output
 
-
+#TODO corrigir G e G_bar
 class _G_loss(nn.Module):
     """The G loss (classification)"""
     def __init__(self):
